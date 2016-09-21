@@ -21,7 +21,7 @@ def make_kernel(a):
 
 def simple_conv(x, k):
   """A simplified 2D convolution operation"""
-  y = tf.nn.conv2d(x, k, [1, 1, 1, 1], padding='SAME')
+  y = tf.nn.conv2d(x, k, [1, 1, 1, 1], padding='VALID')
   return y
 
 def transfer():
@@ -57,8 +57,8 @@ def run():
   t3 = 1.0/36
   c_squ = 1.0/3
   # size of grid
-  nx = 64.0
-  ny = 64.0
+  nx = 32.0
+  ny = 32.0
   msize=nx*ny
   # make grid (F_i) 
   F_i = np.zeros((1, nx, ny, 9), dtype=np.float32)
@@ -67,15 +67,9 @@ def run():
   FEQ = tf.placeholder(tf.float32, shape=(1, nx,ny,9))
   # generated bounds 
   bound = (np.random.rand(1, nx, ny, 1) > 0.9).astype(int).astype(float)
-  bound[0,0,:,0] = 1.0
-  bound[0,nx-1,:,0] = 1.0
-  bound[0,:,0,0] = 1.0
-  bound[0,:,ny-1,0] = 1.0
   bound_display = bound[0,:,:,0]
   # remove bound on incoming fluid
-  bound[0,math.floor(nx/2)-1,math.floor(ny/2.5):ny-math.floor(ny/2.5),0] = 0.0 
-  bound[0,math.floor(nx/2),math.floor(ny/2.5):ny-math.floor(ny/2.5),0] = 0.0 
-  bound[0,math.floor(nx/2)+1,math.floor(ny/2.5):ny-math.floor(ny/2.5),0] = 0.0 
+  bound[0,:,0,0] = 0.0 
   # make tensors to kill bounds
   bound_inv = -(bound-1.0) 
   bound_9 = np.concatenate([bound, bound, bound, bound, bound, bound, bound, bound, np.zeros((1, nx, ny, 1))], axis=3)
@@ -117,15 +111,23 @@ def run():
   uy_kernel = tf.constant(uy_kernel, dtype=1)
 
   # make delta ux (add this tensor to add to the y velocity in the middle region)
-  delta = 1e-7
-  delta_uy = np.zeros((1, nx, ny, 1))
-  delta_uy[0,math.floor(nx/2),math.floor(ny/2.5):ny-math.floor(ny/2.5),0] = delta_uy[0,math.floor(nx/2),math.floor(ny/2.5):ny-math.floor(ny/2.5),0] + delta 
-  delta_uy_display = (delta_uy * (1/delta))[0,:,:,0]
-  delta_uy = tf.constant(delta_uy, dtype=1)
+  #delta = 1e-7
+  delta = 0.0
+  delta_ux = np.zeros((1, nx, ny, 1))
+  delta_ux[0,:,0,0] = delta 
+  #delta_ux_display = (delta_ux * (1/delta))[0,:,:,0]
+  delta_ux_display = delta_ux[0,:,:,0]
+  delta_ux = tf.constant(delta_ux, dtype=1)
 
   # now define the compution
+  # make F_i mobius
+  F_i_mobius = F_i
+  F_i_mobius = tf.concat(1, [F_i_mobius, F_i_mobius[:,0:1,:,:]]) 
+  F_i_mobius = tf.concat(1, [F_i_mobius[:,int(nx-1):int(nx),:,:], F_i_mobius]) 
+  F_i_mobius = tf.concat(2, [F_i_mobius, F_i_mobius[:,:,0:1,:]]) 
+  F_i_mobius = tf.concat(2, [F_i_mobius[:,:,int(ny-1):int(ny),:], F_i_mobius]) 
   #propagate
-  F = simple_conv(F_i, propagate_kernel)
+  F = simple_conv(F_i_mobius, propagate_kernel)
   # single out bounce back values
   bounce_back = tf.mul(F, bound_9)
   F_test_1 = bounce_back 
@@ -138,7 +140,7 @@ def run():
   # calc y vel
   uy = tf.div(simple_conv(F, uy_kernel), density)
   # add delta
-  uy = uy + delta_uy
+  ux = ux + delta_ux
   # kill bounded velocitys and density
   ux = tf.mul(ux, bound_inv)
   uy = tf.mul(uy, bound_inv)
@@ -179,7 +181,7 @@ def run():
   sess.run(init)
 
   # run steps
-  for i in range(3000):
+  for i in range(6000):
     t = time.time()
     step.run(session=sess)
     elapsed = time.time() - t
@@ -201,9 +203,9 @@ def run():
   ux_r = ux_r[0,:,:,0]
   uy_r = uy_r[0,:,:,0]
   # create grid
-  y, x = np.mgrid[.5:63:64j, .5:63:64j]
+  y, x = np.mgrid[.5:31:32j, .5:31:32j]
   # make plot
-  plt.pcolor((bound_display - delta_uy_display), cmap='RdBu')
+  plt.pcolor((bound_display - delta_ux_display), cmap='RdBu')
   #plt.pcolor((density_display), cmap='RdBu', vmin=.95, vmax=1.05)
   #plt.pcolor(np.array(delta_ux_display), cmap=plt.cm.Blues)
   plt.quiver(x, y, ux_r, uy_r, 
