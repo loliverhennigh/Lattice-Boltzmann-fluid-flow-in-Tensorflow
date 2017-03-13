@@ -57,23 +57,23 @@ def run():
   t3 = 1.0/36
   c_squ = 1.0/3
   # size of grid
-  nx = 32.0
-  ny = 32.0
+  nx = 1024.0
+  ny = 1024.0
   msize=nx*ny
   # make grid (F_i) 
-  F_i = np.zeros((1, nx, ny, 9), dtype=np.float32)
+  F_i = np.zeros((1, int(nx), int(ny), 9), dtype=np.float32)
   F_i = F_i + density/9
   F_i = tf.Variable(F_i)
-  FEQ = tf.placeholder(tf.float32, shape=(1, nx,ny,9))
+  FEQ = tf.placeholder(tf.float32, shape=(1, int(nx), int(ny),9))
   # generated bounds 
-  bound = (np.random.rand(1, nx, ny, 1) > 0.9).astype(int).astype(float)
+  bound = (np.random.rand(1, int(nx), int(ny), 1) > 0.9).astype(int).astype(float)
   bound_display = bound[0,:,:,0]
   # remove bound on incoming fluid
   bound[0,:,0,0] = 0.0 
   # make tensors to kill bounds
   bound_inv = -(bound-1.0) 
-  bound_9 = np.concatenate([bound, bound, bound, bound, bound, bound, bound, bound, np.zeros((1, nx, ny, 1))], axis=3)
-  bound_9_inv = np.concatenate([bound_inv, bound_inv, bound_inv, bound_inv, bound_inv, bound_inv, bound_inv, bound_inv, np.zeros((1, nx, ny, 1)) + 1.0], axis=3)
+  bound_9 = np.concatenate([bound, bound, bound, bound, bound, bound, bound, bound, np.zeros((1, int(nx), int(ny), 1))], axis=3)
+  bound_9_inv = np.concatenate([bound_inv, bound_inv, bound_inv, bound_inv, bound_inv, bound_inv, bound_inv, bound_inv, np.zeros((1, int(nx), int(ny), 1)) + 1.0], axis=3)
   bound_9 = tf.constant(bound_9, dtype=1)
   bound_9_inv = tf.constant(bound_9_inv, dtype=1)
   bound = tf.constant(bound, dtype=1)
@@ -113,7 +113,7 @@ def run():
   # make delta ux (add this tensor to add to the y velocity in the middle region)
   #delta = 1e-7
   delta = 0.0
-  delta_ux = np.zeros((1, nx, ny, 1))
+  delta_ux = np.zeros((1, int(nx), int(ny), 1))
   delta_ux[0,:,0,0] = delta 
   #delta_ux_display = (delta_ux * (1/delta))[0,:,:,0]
   delta_ux_display = delta_ux[0,:,:,0]
@@ -122,14 +122,14 @@ def run():
   # now define the compution
   # make F_i mobius
   F_i_mobius = F_i
-  F_i_mobius = tf.concat(1, [F_i_mobius, F_i_mobius[:,0:1,:,:]]) 
-  F_i_mobius = tf.concat(1, [F_i_mobius[:,int(nx-1):int(nx),:,:], F_i_mobius]) 
-  F_i_mobius = tf.concat(2, [F_i_mobius, F_i_mobius[:,:,0:1,:]]) 
-  F_i_mobius = tf.concat(2, [F_i_mobius[:,:,int(ny-1):int(ny),:], F_i_mobius]) 
+  F_i_mobius = tf.concat(axis=1, values=[F_i_mobius, F_i_mobius[:,0:1,:,:]]) 
+  F_i_mobius = tf.concat(axis=1, values=[F_i_mobius[:,int(nx-1):int(nx),:,:], F_i_mobius]) 
+  F_i_mobius = tf.concat(axis=2, values=[F_i_mobius, F_i_mobius[:,:,0:1,:]]) 
+  F_i_mobius = tf.concat(axis=2, values=[F_i_mobius[:,:,int(ny-1):int(ny),:], F_i_mobius]) 
   #propagate
   F = simple_conv(F_i_mobius, propagate_kernel)
   # single out bounce back values
-  bounce_back = tf.mul(F, bound_9)
+  bounce_back = tf.multiply(F, bound_9)
   F_test_1 = bounce_back 
   bounce_back = simple_conv(bounce_back, bound_kernel)
   F_test_2 = bounce_back 
@@ -142,9 +142,9 @@ def run():
   # add delta
   ux = ux + delta_ux
   # kill bounded velocitys and density
-  ux = tf.mul(ux, bound_inv)
-  uy = tf.mul(uy, bound_inv)
-  density = tf.mul(density, bound_inv)
+  ux = tf.multiply(ux, bound_inv)
+  uy = tf.multiply(uy, bound_inv)
+  density = tf.multiply(density, bound_inv)
   # Calc more things
   u_squ = tf.square(ux) + tf.square(uy)
   u_c2 = ux + uy
@@ -153,44 +153,45 @@ def run():
   u_c8 = -u_c4
   # now FEQ 
   # this could probably be heavelily optimized with conv layers but for now I will go with this
-  FEQ_0 = t2*density*(1.0 + tf.div(ux, c_squ) + tf.mul(0.5,tf.square(tf.div(ux, c_squ)))-tf.div(u_squ, 2.0*c_squ))
-  FEQ_2 = t2*density*(1.0 + tf.div(uy, c_squ) + tf.mul(0.5,tf.square(tf.div(uy, c_squ)))-tf.div(u_squ, 2.0*c_squ))
-  FEQ_4 = t2*density*(1.0 - tf.div(ux, c_squ) + tf.mul(0.5,tf.square(tf.div(ux, c_squ)))-tf.div(u_squ, 2.0*c_squ))
-  FEQ_6 = t2*density*(1.0 - tf.div(uy, c_squ) + tf.mul(0.5,tf.square(tf.div(uy, c_squ)))-tf.div(u_squ, 2.0*c_squ))
+  FEQ_0 = t2*density*(1.0 + tf.div(ux, c_squ) + tf.multiply(0.5,tf.square(tf.div(ux, c_squ)))-tf.div(u_squ, 2.0*c_squ))
+  FEQ_2 = t2*density*(1.0 + tf.div(uy, c_squ) + tf.multiply(0.5,tf.square(tf.div(uy, c_squ)))-tf.div(u_squ, 2.0*c_squ))
+  FEQ_4 = t2*density*(1.0 - tf.div(ux, c_squ) + tf.multiply(0.5,tf.square(tf.div(ux, c_squ)))-tf.div(u_squ, 2.0*c_squ))
+  FEQ_6 = t2*density*(1.0 - tf.div(uy, c_squ) + tf.multiply(0.5,tf.square(tf.div(uy, c_squ)))-tf.div(u_squ, 2.0*c_squ))
   # next neighbour ones
-  FEQ_1 = t3*density*(1.0 + tf.div(u_c2, c_squ) + tf.mul(0.5,tf.square(tf.div(u_c2, c_squ)))-tf.div(u_squ, 2.0*c_squ))
-  FEQ_3 = t3*density*(1.0 + tf.div(u_c4, c_squ) + tf.mul(0.5,tf.square(tf.div(u_c4, c_squ)))-tf.div(u_squ, 2.0*c_squ))
-  FEQ_5 = t3*density*(1.0 + tf.div(u_c6, c_squ) + tf.mul(0.5,tf.square(tf.div(u_c6, c_squ)))-tf.div(u_squ, 2.0*c_squ))
-  FEQ_7 = t3*density*(1.0 + tf.div(u_c8, c_squ) + tf.mul(0.5,tf.square(tf.div(u_c8, c_squ)))-tf.div(u_squ, 2.0*c_squ))
+  FEQ_1 = t3*density*(1.0 + tf.div(u_c2, c_squ) + tf.multiply(0.5,tf.square(tf.div(u_c2, c_squ)))-tf.div(u_squ, 2.0*c_squ))
+  FEQ_3 = t3*density*(1.0 + tf.div(u_c4, c_squ) + tf.multiply(0.5,tf.square(tf.div(u_c4, c_squ)))-tf.div(u_squ, 2.0*c_squ))
+  FEQ_5 = t3*density*(1.0 + tf.div(u_c6, c_squ) + tf.multiply(0.5,tf.square(tf.div(u_c6, c_squ)))-tf.div(u_squ, 2.0*c_squ))
+  FEQ_7 = t3*density*(1.0 + tf.div(u_c8, c_squ) + tf.multiply(0.5,tf.square(tf.div(u_c8, c_squ)))-tf.div(u_squ, 2.0*c_squ))
   # final one
   FEQ_8 = t1*density*(1.0 - tf.div(u_squ, 2.0*c_squ))
   # put them all together
-  FEQ = tf.concat(3, [FEQ_0, FEQ_1, FEQ_2, FEQ_3, FEQ_4, FEQ_5, FEQ_6, FEQ_7, FEQ_8])
+  FEQ = tf.concat(axis=3, values=[FEQ_0, FEQ_1, FEQ_2, FEQ_3, FEQ_4, FEQ_5, FEQ_6, FEQ_7, FEQ_8])
 
   # compute f
   F = omega*FEQ+(1.0-omega)*F
-  F_i_plus = tf.mul(F, bound_9_inv) + bounce_back
+  F_i_plus = tf.multiply(F, bound_9_inv) + bounce_back
+  print(F_i)
   step = tf.group(
     F_i.assign(F_i_plus))
 
   # init things
-  init = tf.initialize_all_variables()
+  init = tf.global_variables_initializer()
   # start sess
   sess = tf.Session()
   # init variables
   sess.run(init)
 
   # run steps
-  for i in range(6000):
+  for i in range(16000):
     t = time.time()
     step.run(session=sess)
     elapsed = time.time() - t
     if i % 1000 == 0:
       print("step " + str(i))
       print("time per step " + str(elapsed))
-    print(F_test_1.eval(session=sess)[0,4,4,:])
-    print("next")
-    print(F_test_2.eval(session=sess)[0,4,4,:])
+    #print(F_test_1.eval(session=sess)[0,4,4,:])
+    #print("next")
+    #print(F_test_2.eval(session=sess)[0,4,4,:])
 
   if FLAGS.test:
     print("saving last F to compare with matlab version")
