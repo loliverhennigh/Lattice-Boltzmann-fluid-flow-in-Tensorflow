@@ -37,11 +37,12 @@ class lattice(object):
        self.g = 0.0;
        self.gs = 0.0;
 
+
     def _density(self):
-        self.density = tf.reduce_sum(f, axis=3)
+        self.density = tf.reduce_sum(f_temp, axis=3)
 
     def _velocity(self):
-        flat_f = tf.reshape(self.f, (self.ncells, self.nneigh))
+        flat_f = self.f_flat()
         velocity = flat_f * self.c
         velocity = tf.reshape(velocity, self.dims + [3])
         self._density()
@@ -57,30 +58,39 @@ class lattice(object):
     def _psi(self):
         self.psi = self.psiref*tf.exp(-self.rhoref / self.rho)
 
-    def _boundary_kill(self):
-        flat_f = tf.reshape(self.f_temp, (self.ncells, self.nneigh))
-        self.f_boundary_kill = flat_f * (-self.boundary + 1.0)
+    def _f_flat(self, f):
+        return tf.reshape(f, (self.ncells, self.nneigh))
 
-    def _boundary_not_kill(self):
-        flat_f = tf.reshape(self.f_temp, (self.ncells, self.nneigh))
-        self.f_boundary_not_kill = flat_f * self.boundary
+    def _f_no_boundary(self, f):
+        f_flat = self._f_flat( 
+        return flat_f * (-self.boundary + 1.0)
+
+    def _f_boundary(self):
+        f_flat = self._f_flat 
+        return flat_f * self.boundary
 
     def _bounce_back(self):
-        self._boundary_kill()
-        self._boundary_kill()
-        flat_f = tf.reshape(self.f_temp, (self.ncells, self.nneigh))
-        flat_boundary = tf.reshape(self.boundary, (self.ncells, self.nneigh))
-        self.flat_f_boundary_not_kill = self.flat_f_boundary_not_kill * self.bounce_kernel
+        f_no_boundary = self._f_no_boundary()
+        f_boundary = self._f_no_boundary()
+        f_boundary = f_boundary * self.bounce_kernel
+        f_flat = f_boundary + self.f_no_boundary
+        self.f_temp = tf.reshape(f_flat, self.dims + [self.nneigh])
 
     def _bn(self):
-        self.bn = (self.gamma*(self.tau-0.5))/((1-self.gamma)+(self.tau-0.5))
+        return (self.gamma*(self.tau-0.5))/((1-self.gamma)+(self.tau-0.5))
 
     def _feq(self):
-        flat_velocity = self.
+        self._velocity()
+        v_dot_c = self.v * tf.transpose(self.c, [1,0])
+        v_dot_v = tf.reduce_sum(self.v * self.v, axis=3)
+        feq = self.w * self.density * (1.0 + 3.0 * v_dot_c / self.cs + 4.5 * v_dot_c * v_dot_c /(self.cs*self.cs) - 1.5 * v_dot_v/(self.cs * self.cs))
+        return feq
 
     def _collide(self):
         ome = 1.0/self.tau
-        self._boundary_kill
+        f_no_boundary = self._f_no_boundary()
+        bn = self._bn() 
+         
         self._velocity()
 
         
