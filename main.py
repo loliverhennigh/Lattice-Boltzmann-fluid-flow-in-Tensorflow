@@ -26,7 +26,8 @@ def make_car_boundary(car_name="cars/car_001.png", shape=[256,1024], car_shape=(
   resized_img = -(resized_img/255.0).astype(int).astype(np.float32) + 1.0
   resized_img = resized_img.reshape([1, car_shape[1], car_shape[0], 1])
   boundary = np.zeros((1, shape[0], shape[1], 1), dtype=np.float32)
-  boundary[:, 64:64+car_shape[1], 64:64+car_shape[0], :] = resized_img
+  boundary[:, shape[0]-car_shape[1]:, 128:128+car_shape[0], :] = resized_img
+  boundary[:,0,:,:] = 1.0
   return boundary
 
 def make_kernel(a):
@@ -70,8 +71,8 @@ def run():
   # fig taken from http://exolete.com/lbm/
 
   # constants
-  omega = 1.85
-  density = 0.08
+  omega = 1.9
+  density = 1.0
   t1 = 4.0/9 
   t2 = 1.0/9 
   t3 = 1.0/36
@@ -142,7 +143,7 @@ def run():
   uy_kernel = tf.constant(uy_kernel, dtype=tf.float32)
 
   # make delta ux (add this tensor to add to the y velocity in the middle region)
-  delta = 3e-3
+  delta = 2e-3
   #delta = 0.0
   delta_ux = np.zeros((1, int(nx), int(ny), 1))
   delta_ux[0,:,0,0] = delta 
@@ -223,7 +224,7 @@ def run():
     #print(F_test_1.eval(session=sess)[0,4,4,:])
     #print("next")
     #print(F_test_2.eval(session=sess)[0,4,4,:])
-    if i % 50 == 0:
+    if i % 15 == 0:
       ux_r = ux.eval(session=sess)
       uy_r = uy.eval(session=sess)
       ux_r = ux_r[0,:,:,:]
