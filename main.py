@@ -214,11 +214,11 @@ def run():
   sess.run(init)
 
   # run steps
-  for i in range(100000):
+  for i in range(100):
     t = time.time()
     step.run(session=sess)
     elapsed = time.time() - t
-    if i % 1000 == 0:
+    if i % 100 == 0:
       print("step " + str(i))
       print("time per step " + str(elapsed))
     #print(F_test_1.eval(session=sess)[0,4,4,:])

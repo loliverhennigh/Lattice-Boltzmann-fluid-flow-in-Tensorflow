@@ -65,20 +65,15 @@ def _create_boundary_cutter(boundary, solver_type="D2Q9"):
     boundary_cutter_inv = (1.0 - boundary_cutter)
   return boundary_cutter, boundary_cutter_inv
 
-def _set_velocity_boundary(f, u, pos="y_lower"):
-  if pos == "x_lower":
-    f = f[:,1:]
-    f = tf.concat([u,f],axis=1)
-  elif pos == "x_upper":
-    f = f[:,:-1]
-    f = tf.concat([f,u],axis=1)
-  elif pos == "y_lower":
-    print("sdf")
+def _set_velocity_boundary(f, u, density, pos="y_lower"):
+  if pos == "y_lower":
     f = f[:,:,1:]
-    f = tf.concat([u,f],axis=2)
-  elif pos == "y_upper":
-    f = f[:,:,:-1]
-    f = tf.concat([f,u],axis=2)
+    f_edge = tf.split(f[:,:,0:1], 9, axis=3)
+    f_edge[0] = f_edge[4] + (2.0/3.0)*density*u
+    f_edge[1] = f_edge[5] + (1.0/6.0)*density*u - 0.5*(f_edge[2]-f_edge[6])
+    f_edge[7] = f_edge[3] + (1.0/6.0)*density*u + 0.5*(f_edge[2]-f_edge[6])
+    f_edge = tf.stack(f_edge, axis=3)[:,:,:,:,0]
+    f = tf.concat([f_edge,f],axis=2)
   return f
 
 def _pad_f(f):
@@ -134,7 +129,8 @@ def _u_to_feq(u, density):
   return FEQ
 
 def _collision(f, feq, tau):
-  return tau*feq+(1.0-tau)*f
+  omega = 1/tau
+  return omega*feq+(1.0-omega)*f
 
 def _combine_boundary(f, f_boundary, boundary_cutter_inv):
   return tf.multiply(f, boundary_cutter_inv) + f_boundary
@@ -146,14 +142,14 @@ def zeros_f(shape, density=1.0, solver_type="D2Q9"):
   f = tf.Variable(f)
   return f
 
-def lbm_step(f, boundary, u_in, tau=1.7):
+def lbm_step(f, boundary, u_in, density=1.0, tau=1.7):
   transfer_kernel = _transfer_kernel_D2Q9()
   u_kernel = _u_kernel_D2Q9()
   boundary_kernel = _boundary_kernel_D2Q9()
   boundary_cutter, boundary_cutter_inv = _create_boundary_cutter(boundary)
 
   # set velcity in
-  f_init_vel =  _set_velocity_boundary(f, u_in, pos="y_lower")
+  f_init_vel =  _set_velocity_boundary(f, u_in, density, pos="y_lower")
 
   # propagate
   f_propagate = _propagate(f_init_vel, transfer_kernel)
