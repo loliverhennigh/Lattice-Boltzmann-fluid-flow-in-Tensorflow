@@ -14,7 +14,9 @@ def _simple_conv(x, k):
   #  x = tf.pad(
   #      x, [[0, 0], [1, 1], [1, 1],
   #      [0, 0]], "REFLECT")
+  print(x.get_shape())
   y = tf.nn.conv2d(x, k, [1, 1, 1, 1], padding='VALID')
+  print(y.get_shape())
   return y
 
 def _transfer_kernel_D2Q9():
@@ -77,8 +79,8 @@ def _set_velocity_boundary(f, u, density, pos="y_lower"):
   return f
 
 def _pad_f(f):
-  f_mobius = tf.concat(axis=1, values=[f[:,-2:-1], f, f[:,0:1]]) 
-  f_mobius = tf.concat(axis=2, values=[f_mobius[:,:,-2:-1], f_mobius, f_mobius[:,:,0:1]])
+  f_mobius = tf.concat(axis=2, values=[f[:,:,-2:-1], f, f[:,:,0:1]]) 
+  f_mobius = tf.concat(axis=1, values=[f_mobius[:,-2:-1], f_mobius, f_mobius[:,0:1]])
   return f_mobius
   
 def _propagate(f, propagate_kernel):
@@ -138,7 +140,15 @@ def _combine_boundary(f, f_boundary, boundary_cutter_inv):
 def zeros_f(shape, density=1.0, solver_type="D2Q9"):
   if solver_type == "D2Q9":
     f = np.zeros([1] + shape + [9], dtype=np.float32)
-    f = f + density/9.0
+    f[:,:,:,0] = 1.0*density/9.0
+    f[:,:,:,1] = 1.0*density/36.0
+    f[:,:,:,2] = 1.0*density/9.0
+    f[:,:,:,3] = 1.0*density/36.0
+    f[:,:,:,4] = 1.0*density/9.0
+    f[:,:,:,5] = 1.0*density/36.0
+    f[:,:,:,6] = 1.0*density/9.0
+    f[:,:,:,7] = 1.0*density/36.0
+    f[:,:,:,8] = 4.0*density/9.0
   f = tf.Variable(f)
   return f
 

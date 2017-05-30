@@ -54,12 +54,11 @@ def run():
   f = zeros_f(shape, density=density)
   boundary = make_car_boundary(shape=shape, car_shape=(shape[1]/2, shape[0]/2))
   boundary = tf.constant(boundary)
-  u_in = make_u_input(shape, value=input_vel)
+  u_in = make_u_input(shape, value=input_vel, density=density)
   u_in = tf.constant(u_in)
  
   # construc solver 
   step, u, f = lbm_step(f, boundary, u_in, density=density, tau=tau)
-
 
   # init things
   init = tf.global_variables_initializer()
@@ -69,11 +68,12 @@ def run():
   sess.run(init)
 
   # run steps
-  for i in range(2000):
+  for i in range(50000):
     if i % 10 == 0:
       f_r = f.eval(session=sess)
       u_r = u.eval(session=sess)
       ux_r = u_r[0,:,:,0:1]
+      #uy_r = u_r[0,:,:,1:2]
       uy_r = u_r[0,:,:,1:2]
       frame = np.square(ux_r) + np.square(uy_r)
       frame = np.uint8(255 * frame/np.max(frame))
