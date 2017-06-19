@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 fourcc = cv2.cv.CV_FOURCC('m', 'p', '4', 'v') 
 video = cv2.VideoWriter()
 
-shape = [64, 256]
+shape = [128, 512]
 success = video.open('video.mov', fourcc, 4, (shape[1], shape[0]), True)
 
 FLAGS = tf.app.flags.FLAGS
@@ -48,13 +48,13 @@ def run():
   # constants
   density = 1.0
   input_vel = 0.1
-  tau = 1.0
+  tau = 0.5 + 3.0*.02
 
   # make lattice state, boundary and input velocity
   f = zeros_f(shape, density=density)
-  boundary = make_car_boundary(shape=shape, car_shape=(shape[1]/2, shape[0]/2))
+  boundary = make_car_boundary(shape=shape, car_shape=(int(shape[1]/1.3), int(shape[0]/1.3)))
   boundary = tf.constant(boundary)
-  u_in = make_u_input(shape, value=input_vel, density=density)
+  u_in = make_u_input(shape, value=input_vel)
   u_in = tf.constant(u_in)
  
   # construc solver 
@@ -68,7 +68,7 @@ def run():
   sess.run(init)
 
   # run steps
-  for i in range(50000):
+  for i in range(1000):
     if i % 10 == 0:
       f_r = f.eval(session=sess)
       u_r = u.eval(session=sess)

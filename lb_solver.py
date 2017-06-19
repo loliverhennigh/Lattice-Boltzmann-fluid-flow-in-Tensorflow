@@ -69,18 +69,47 @@ def _create_boundary_cutter(boundary, solver_type="D2Q9"):
 
 def _set_velocity_boundary(f, u, density, pos="y_lower"):
   if pos == "y_lower":
-    f = f[:,:,1:]
+    print("y_lower")
+    # input vel on left side
+    f_out = f[:,:,1:]
     f_edge = tf.split(f[:,:,0:1], 9, axis=3)
-    f_edge[0] = f_edge[4] + (2.0/3.0)*density*u
-    f_edge[1] = f_edge[5] + (1.0/6.0)*density*u - 0.5*(f_edge[2]-f_edge[6])
-    f_edge[7] = f_edge[3] + (1.0/6.0)*density*u + 0.5*(f_edge[2]-f_edge[6])
+
+    # new in distrobution
+    rho = (f_edge[8] + f_edge[2] + f_edge[6] + 2.0*(f_edge[4] + f_edge[5] + f_edge[3]))/(1.0 - u)
+    f_edge[0] = f_edge[4] + (2.0/3.0)*rho*u
+    f_edge[1] = f_edge[5] + (1.0/6.0)*rho*u - 0.5*(f_edge[2]-f_edge[6])
+    f_edge[7] = f_edge[3] + (1.0/6.0)*rho*u + 0.5*(f_edge[2]-f_edge[6])
+
     f_edge = tf.stack(f_edge, axis=3)[:,:,:,:,0]
-    f = tf.concat([f_edge,f],axis=2)
+    f = tf.concat([f_edge,f_out],axis=2)
+
+    # remove vel on right side
+    f_out = f[:,:,:-1]
+    f_edge = tf.split(f[:,:,-1:], 9, axis=3)
+
+    vx = -1.0 + (f_edge[8] + f_edge[2] + f_edge[6] + 2.0*(f_edge[0] + f_edge[1] + f_edge[7]))
+    f_edge[4] = f_edge[0] - (2.0/3.0)*vx
+    f_edge[5] = f_edge[1] - (1.0/6.0)*vx + 0.5*(f_edge[2]-f_edge[6])
+    f_edge[3] = f_edge[7] - (1.0/6.0)*vx - 0.5*(f_edge[2]-f_edge[6])
+    f_edge = tf.stack(f_edge, axis=3)[:,:,:,:,0]
+    f = tf.concat([f_out,f_edge],axis=2)
+ 
+  if pos == "x_lower":
+    # input vel on left side
+    f_out = f[:,1:]
+    f_edge = tf.split(f[:,0:1], 9, axis=3)
+    #rho = (f_edge[8] + f_edge[2] + f_edge[6] + 2.0*(f_edge[4] + f_edge[5] + f_edge[3]))/(1.0 - u)
+    rho = 1.0
+    f_edge[0] = f_edge[4] + (2.0/3.0)*rho*u
+    f_edge[1] = f_edge[5] + (1.0/6.0)*rho*u - 0.5*(f_edge[2]-f_edge[6])
+    f_edge[7] = f_edge[3] + (1.0/6.0)*rho*u + 0.5*(f_edge[2]-f_edge[6])
+    f_edge = tf.stack(f_edge, axis=3)[:,:,:,:,0]
+    f = tf.concat([f_edge,f_out],axis=1)
   return f
 
 def _pad_f(f):
-  f_mobius = tf.concat(axis=2, values=[f[:,:,-2:-1], f, f[:,:,0:1]]) 
-  f_mobius = tf.concat(axis=1, values=[f_mobius[:,-2:-1], f_mobius, f_mobius[:,0:1]])
+  f_mobius = tf.concat(axis=1, values=[f[:,-1:], f, f[:,0:1]]) 
+  f_mobius = tf.concat(axis=2, values=[f_mobius[:,:,-1:], f_mobius, f_mobius[:,:,0:1]])
   return f_mobius
   
 def _propagate(f, propagate_kernel):
@@ -152,14 +181,14 @@ def zeros_f(shape, density=1.0, solver_type="D2Q9"):
   f = tf.Variable(f)
   return f
 
-def lbm_step(f, boundary, u_in, density=1.0, tau=1.7):
+def lbm_step(f, boundary, u_in, density=1.0, tau=1.7, pos="y_lower"):
   transfer_kernel = _transfer_kernel_D2Q9()
   u_kernel = _u_kernel_D2Q9()
   boundary_kernel = _boundary_kernel_D2Q9()
   boundary_cutter, boundary_cutter_inv = _create_boundary_cutter(boundary)
 
   # set velcity in
-  f_init_vel =  _set_velocity_boundary(f, u_in, density, pos="y_lower")
+  f_init_vel =  _set_velocity_boundary(f, u_in, density, pos=pos)
 
   # propagate
   f_propagate = _propagate(f_init_vel, transfer_kernel)

@@ -5,6 +5,7 @@ import numpy as np
 import tensorflow as tf
 import math 
 import cv2
+from utils import *
 
 import Domain as dom
 
@@ -45,20 +46,30 @@ def car_setup_step(domain, value=0.001):
   u = tf.constant(u)
 
   # input vel on left side
-  print(domain.F)
-  print(domain.F[0].get_shape())
   f_out = domain.F[0][:,:,1:]
   f_edge = tf.split(domain.F[0][:,:,0:1], 9, axis=3)
 
   # new in distrobution
-  rho = (f_edge[8] + f_edge[2] + f_edge[6] + 2.0*(f_edge[4] + f_edge[5] + f_edge[3]))/(1.0 - u)
-  f_edge[0] = f_edge[4] + (2.0/3.0)*rho*u
-  f_edge[1] = f_edge[5] + (1.0/6.0)*rho*u - 0.5*(f_edge[2]-f_edge[6])
-  f_edge[7] = f_edge[3] + (1.0/6.0)*rho*u + 0.5*(f_edge[2]-f_edge[6])
+  rho = (f_edge[0] + f_edge[2] + f_edge[4] + 2.0*(f_edge[3] + f_edge[6] + f_edge[7]))/(1.0 - u)
+  f_edge[1] = f_edge[3] + (2.0/3.0)*rho*u
+  f_edge[5] = f_edge[7] + (1.0/6.0)*rho*u - 0.5*(f_edge[2]-f_edge[6])
+  f_edge[8] = f_edge[6] + (1.0/6.0)*rho*u + 0.5*(f_edge[2]-f_edge[6])
   f_edge = tf.stack(f_edge, axis=3)[:,:,:,:,0]
   f = tf.concat([f_edge,f_out],axis=2)
+  
+  # new Rho
+  rho_out = domain.Rho[0][:,:,1:]
+  rho_edge = tf.expand_dims(tf.reduce_sum(f_edge, axis=3), axis=3)
+  rho = tf.concat([rho_edge,rho_out],axis=2)
+
+  # new vel
+  vel_out = domain.Vel[0][:,:,1:]
+  vel_edge = simple_conv(f_edge, tf.reshape(domain.C, [1,1,domain.Nneigh, 3]))
+  vel_edge = vel_edge/rho_edge
+  vel = tf.concat([vel_edge,vel_out],axis=2)
 
   # remove vel on right side
+  """
   f_out = f[:,:,:-1]
   f_edge = tf.split(f[:,:,-1:], 9, axis=3)
 
@@ -68,14 +79,18 @@ def car_setup_step(domain, value=0.001):
   f_edge[3] = f_edge[7] - (1.0/6.0)*vx - 0.5*(f_edge[2]-f_edge[6])
   f_edge = tf.stack(f_edge, axis=3)[:,:,:,:,0]
   f = tf.concat([f_out,f_edge],axis=2)
+  """
 
-  setup_step = domain.F[0].assign(f)
+  f_step =   domain.F[0].assign(f)
+  rho_step = domain.Rho[0].assign(rho)
+  vel_step = domain.Vel[0].assign(vel)
+  setup_step = tf.group(*[f_step, rho_step, vel_step])
   return setup_step
 
 def run():
   # constants
   nu = .02
-  input_vel = 0.001
+  input_vel = 0.1
   Ndim = shape
   boundary = make_car_boundary(shape=Ndim, car_shape=(int(Ndim[1]/1.3), int(Ndim[0]/1.3)))
 

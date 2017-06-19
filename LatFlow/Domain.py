@@ -74,8 +74,9 @@ class Domain():
     f_no_boundary = tf.multiply(self.F[0], (1.0-self.boundary))
     vel_no_boundary = tf.multiply(self.Vel[0], (1.0-self.boundary))
     bforce_no_boundary = tf.multiply(self.BForce[0], (1.0-self.boundary))
-    rho_no_boundary = tf.multiply(self.Rho[0], (1.0-self.boundary))
-    vel = vel_no_boundary + self.dt*self.tau[0]*(bforce_no_boundary/rho_no_boundary)
+    #rho_no_boundary = tf.multiply(self.Rho[0], (1.0-self.boundary))
+    rho_no_boundary = tf.multiply(self.Rho[0], (1.0-self.boundary)) + 1e-10*self.boundary
+    vel = vel_no_boundary + self.dt*self.tau[0]*(bforce_no_boundary/(rho_no_boundary + 1e-10))
     vel_dot_vel = tf.expand_dims(tf.reduce_sum(vel * vel, axis=3), axis=3)
     vel_dot_c = tf.reduce_sum(tf.expand_dims(vel, axis=3) * tf.reshape(self.C, [1,1,1,self.Nneigh,3]), axis=4)
     Feq = tf.reshape(self.W, [1,1,1,self.Nneigh]) * rho_no_boundary * (1.0 + 3.0*vel_dot_c/self.Cs + 4.5*vel_dot_c*vel_dot_c/(self.Cs*self.Cs) - 1.5*vel_dot_vel/(self.Cs*self.Cs))
@@ -84,7 +85,8 @@ class Domain():
     Q = tf.sqrt(2.0*Q)
     tau = 0.5*(self.tau[0]+tf.sqrt(self.tau[0]*self.tau[0] + 6.0*Q*self.Sc/rho_no_boundary))
     f_no_boundary = f_no_boundary - NonEq/tau
-    collid_step = self.F[0].assign(f_no_boundary)
+    f = f_no_boundary + f_boundary
+    collid_step = self.F[0].assign(f)
     return collid_step
 
   def StreamSC(self):
@@ -105,7 +107,9 @@ class Domain():
     return step
 
   def Initialize(self):
-    f_zero = tf.constant(np.zeros([1] + self.Ndim + [self.Nneigh]), dtype=np.float32)
+    np_f_zeros = np.zeros([1] + self.Ndim + [self.Nneigh], dtype=np.float32)
+    np_f_zeros[:,32:64,32:64,1] = 1.0
+    f_zero = tf.constant(np_f_zeros)
     f_zero = f_zero + tf.reshape(self.W, [1,1,1] + [self.Nneigh])
     assign_step = self.F[0].assign(f_zero)
     return assign_step 
@@ -124,7 +128,9 @@ class Domain():
       print(np_f.shape)
       plt.imshow(np_f)
       plt.show()
-      sess.run(setup_step) 
+      #sess.run(setup_step) 
       sess.run(stream_step)
-      sess.run(collide_step)
+      #sess.run(collide_step)
       self.time += self.dt
+
+
