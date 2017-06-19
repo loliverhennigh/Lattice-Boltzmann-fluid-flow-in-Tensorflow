@@ -34,7 +34,7 @@ def make_car_boundary(car_name="../cars/car_001.png", shape=[256,1024], car_shap
   boundary[:,shape[0]-1,:,:] = 1.0
   return boundary
 
-def make_u_input(domain, value=0.001):
+def car_setup_step(domain, value=0.001):
   u = np.zeros((1,shape[0],1,1))
   l = shape[0] - 2
   for i in xrange(shape[0]):
@@ -42,11 +42,40 @@ def make_u_input(domain, value=0.001):
     vx = value*4.0/(l*l)*(l*yp - yp*yp)
     u[0,i,0,0] = vx
   u = u.astype(np.float32)
-  return u
+  u = tf.constant(u)
+
+  # input vel on left side
+  print(domain.F)
+  print(domain.F[0].get_shape())
+  f_out = domain.F[0][:,:,1:]
+  f_edge = tf.split(domain.F[0][:,:,0:1], 9, axis=3)
+
+  # new in distrobution
+  rho = (f_edge[8] + f_edge[2] + f_edge[6] + 2.0*(f_edge[4] + f_edge[5] + f_edge[3]))/(1.0 - u)
+  f_edge[0] = f_edge[4] + (2.0/3.0)*rho*u
+  f_edge[1] = f_edge[5] + (1.0/6.0)*rho*u - 0.5*(f_edge[2]-f_edge[6])
+  f_edge[7] = f_edge[3] + (1.0/6.0)*rho*u + 0.5*(f_edge[2]-f_edge[6])
+  f_edge = tf.stack(f_edge, axis=3)[:,:,:,:,0]
+  f = tf.concat([f_edge,f_out],axis=2)
+
+  # remove vel on right side
+  f_out = f[:,:,:-1]
+  f_edge = tf.split(f[:,:,-1:], 9, axis=3)
+
+  vx = -1.0 + (f_edge[8] + f_edge[2] + f_edge[6] + 2.0*(f_edge[0] + f_edge[1] + f_edge[7]))
+  f_edge[4] = f_edge[0] - (2.0/3.0)*vx
+  f_edge[5] = f_edge[1] - (1.0/6.0)*vx + 0.5*(f_edge[2]-f_edge[6])
+  f_edge[3] = f_edge[7] - (1.0/6.0)*vx - 0.5*(f_edge[2]-f_edge[6])
+  f_edge = tf.stack(f_edge, axis=3)[:,:,:,:,0]
+  f = tf.concat([f_out,f_edge],axis=2)
+
+  setup_step = domain.F[0].assign(f)
+  return setup_step
 
 def run():
   # constants
   nu = .02
+  input_vel = 0.001
   Ndim = shape
   boundary = make_car_boundary(shape=Ndim, car_shape=(int(Ndim[1]/1.3), int(Ndim[0]/1.3)))
 
@@ -54,20 +83,20 @@ def run():
   domain = dom.Domain("D2Q9", nu, Ndim, boundary)
 
   # make lattice state, boundary and input velocity
-  u_in = make_u_input(shape, value=input_vel)
-  u_in = tf.constant(u_in)
- 
-  # construc solver 
-  step, u, f = lbm_step(f, boundary, u_in, density=density, tau=tau)
+  setup_step = car_setup_step(domain, value=input_vel)
 
   # init things
   init = tf.global_variables_initializer()
+
   # start sess
   sess = tf.Session()
+
   # init variables
   sess.run(init)
 
   # run steps
+  domain.Solve(sess, 100, setup_step)
+
   for i in range(1000):
     if i % 10 == 0:
       f_r = f.eval(session=sess)
