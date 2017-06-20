@@ -30,10 +30,26 @@ def make_car_boundary(car_name="../cars/car_001.png", shape=[256,1024], car_shap
   resized_img = -np.rint(resized_img/255.0).astype(int).astype(np.float32) + 1.0
   resized_img = resized_img.reshape([1, car_shape[1], car_shape[0], 1])
   boundary = np.zeros((1, shape[0], shape[1], 1), dtype=np.float32)
-  boundary[:, shape[0]-car_shape[1]:, 64:64+car_shape[0], :] = resized_img
+  #boundary[:, shape[0]-car_shape[1]:, 64:64+car_shape[0], :] = resized_img
   boundary[:,0,:,:] = 1.0
   boundary[:,shape[0]-1,:,:] = 1.0
   return boundary
+
+def car_init_step(domain, value=0.08):
+  vel_dir = tf.zeros_like(domain.Vel[0][:,:,:,0:1])
+  vel = tf.concat([vel_dir+value, vel_dir, vel_dir], axis=3)
+  vel_dot_vel = tf.expand_dims(tf.reduce_sum(vel * vel, axis=3), axis=3)
+  vel_dot_c = tf.reduce_sum(tf.expand_dims(vel, axis=3) * tf.reshape(domain.C, [1,1,1,domain.Nneigh,3]), axis=4)
+  feq = tf.reshape(domain.W, [1,1,1,domain.Nneigh]) * (1.0 + 3.0*vel_dot_c/domain.Cs + 4.5*vel_dot_c*vel_dot_c/(domain.Cs*domain.Cs) - 1.5*vel_dot_vel/(domain.Cs*domain.Cs))
+
+  vel = vel * (1.0 - domain.boundary)
+  rho = (1.0 - domain.boundary)
+
+  f_step = domain.F[0].assign(feq)
+  rho_step = domain.Rho[0].assign(rho)
+  vel_step = domain.Vel[0].assign(vel)
+  initialize_step = tf.group(*[f_step, rho_step, vel_step])
+  return initialize_step
 
 def car_setup_step(domain, value=0.001):
   u = np.zeros((1,shape[0],1,1))
@@ -52,8 +68,8 @@ def car_setup_step(domain, value=0.001):
   # new in distrobution
   rho = (f_edge[0] + f_edge[2] + f_edge[4] + 2.0*(f_edge[3] + f_edge[6] + f_edge[7]))/(1.0 - u)
   f_edge[1] = f_edge[3] + (2.0/3.0)*rho*u
-  f_edge[5] = f_edge[7] + (1.0/6.0)*rho*u - 0.5*(f_edge[2]-f_edge[6])
-  f_edge[8] = f_edge[6] + (1.0/6.0)*rho*u + 0.5*(f_edge[2]-f_edge[6])
+  f_edge[5] = f_edge[7] + (1.0/6.0)*rho*u - 0.5*(f_edge[2]-f_edge[4])
+  f_edge[8] = f_edge[6] + (1.0/6.0)*rho*u + 0.5*(f_edge[2]-f_edge[4])
   f_edge = tf.stack(f_edge, axis=3)[:,:,:,:,0]
   f = tf.concat([f_edge,f_out],axis=2)
   
@@ -69,18 +85,29 @@ def car_setup_step(domain, value=0.001):
   vel = tf.concat([vel_edge,vel_out],axis=2)
 
   # remove vel on right side
-  """
   f_out = f[:,:,:-1]
   f_edge = tf.split(f[:,:,-1:], 9, axis=3)
 
-  vx = -1.0 + (f_edge[8] + f_edge[2] + f_edge[6] + 2.0*(f_edge[0] + f_edge[1] + f_edge[7]))
-  f_edge[4] = f_edge[0] - (2.0/3.0)*vx
-  f_edge[5] = f_edge[1] - (1.0/6.0)*vx + 0.5*(f_edge[2]-f_edge[6])
-  f_edge[3] = f_edge[7] - (1.0/6.0)*vx - 0.5*(f_edge[2]-f_edge[6])
+  # new out distrobution
+  vx = -1.0 + (f_edge[0] + f_edge[2] + f_edge[4] + 2.0*(f_edge[1] + f_edge[5] + f_edge[8]))
+  f_edge[3] = f_edge[1] - (2.0/3.0)*vx
+  f_edge[7] = f_edge[5] - (1.0/6.0)*vx + 0.5*(f_edge[2]-f_edge[4])
+  f_edge[6] = f_edge[8] - (1.0/6.0)*vx - 0.5*(f_edge[2]-f_edge[4])
   f_edge = tf.stack(f_edge, axis=3)[:,:,:,:,0]
   f = tf.concat([f_out,f_edge],axis=2)
-  """
+ 
+  # new Rho
+  rho_out = domain.Rho[0][:,:,:-1]
+  rho_edge = tf.expand_dims(tf.reduce_sum(f_edge, axis=3), axis=3)
+  rho = tf.concat([rho_out,rho_edge],axis=2)
 
+  # new vel
+  vel_out = domain.Vel[0][:,:,:-1]
+  vel_edge = simple_conv(f_edge, tf.reshape(domain.C, [1,1,domain.Nneigh, 3]))
+  vel_edge = vel_edge/rho_edge
+  vel = tf.concat([vel_out,vel_edge],axis=2)
+
+  # make steps
   f_step =   domain.F[0].assign(f)
   rho_step = domain.Rho[0].assign(rho)
   vel_step = domain.Vel[0].assign(vel)
@@ -89,8 +116,9 @@ def car_setup_step(domain, value=0.001):
 
 def run():
   # constants
-  nu = .02
-  input_vel = 0.1
+  input_vel = 0.01
+  Re = 40000.0
+  nu = input_vel * (2*6*(1024./10))/Re
   Ndim = shape
   boundary = make_car_boundary(shape=Ndim, car_shape=(int(Ndim[1]/1.3), int(Ndim[0]/1.3)))
 
@@ -98,6 +126,7 @@ def run():
   domain = dom.Domain("D2Q9", nu, Ndim, boundary)
 
   # make lattice state, boundary and input velocity
+  initialize_step = car_init_step(domain, value=0.008)
   setup_step = car_setup_step(domain, value=input_vel)
 
   # init things
@@ -110,14 +139,13 @@ def run():
   sess.run(init)
 
   # run steps
-  domain.Solve(sess, 100, setup_step)
+  domain.Solve(sess, 100, initialize_step, setup_step)
 
   for i in range(1000):
     if i % 10 == 0:
       f_r = f.eval(session=sess)
       u_r = u.eval(session=sess)
       ux_r = u_r[0,:,:,0:1]
-      #uy_r = u_r[0,:,:,1:2]
       uy_r = u_r[0,:,:,1:2]
       frame = np.square(ux_r) + np.square(uy_r)
       frame = np.uint8(255 * frame/np.max(frame))

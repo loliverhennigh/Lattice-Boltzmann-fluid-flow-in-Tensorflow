@@ -19,7 +19,7 @@ class Domain():
       self.Dim    = 2
       self.W      = D2Q9.WEIGHTS
       self.C      = D2Q9.LVELOC
-      self.Op     = D2Q9.OPPOSITE
+      self.Op     = D2Q9.BOUNCE
       self.St     = D2Q9.STREAM
       print(self.St.get_shape())
 
@@ -71,6 +71,8 @@ class Domain():
 
   def CollideSC(self):
     f_boundary = tf.multiply(self.F[0], self.boundary)
+    print(tf.reshape(self.Op, [1,1,self.Nneigh,self.Nneigh]).get_shape())
+    f_boundary = simple_conv(f_boundary, tf.reshape(self.Op, [1,1,self.Nneigh,self.Nneigh]))
     f_no_boundary = tf.multiply(self.F[0], (1.0-self.boundary))
     vel_no_boundary = tf.multiply(self.Vel[0], (1.0-self.boundary))
     bforce_no_boundary = tf.multiply(self.BForce[0], (1.0-self.boundary))
@@ -108,13 +110,12 @@ class Domain():
 
   def Initialize(self):
     np_f_zeros = np.zeros([1] + self.Ndim + [self.Nneigh], dtype=np.float32)
-    np_f_zeros[:,32:64,32:64,1] = 1.0
     f_zero = tf.constant(np_f_zeros)
     f_zero = f_zero + tf.reshape(self.W, [1,1,1] + [self.Nneigh])
     assign_step = self.F[0].assign(f_zero)
     return assign_step 
 
-  def Solve(self, sess, Tf, setup_step):
+  def Solve(self, sess, Tf, initialize_step, setup_step):
     # make steps
     assign_step = self.Initialize()
     stream_step = self.StreamSC() 
@@ -122,15 +123,17 @@ class Domain():
 
     # run solver
     sess.run(assign_step)
-    while self.time < Tf:
-      np_f = sess.run(self.Vel[0])
-      np_f = np.sum(np_f, axis=-1)[0]
-      print(np_f.shape)
-      plt.imshow(np_f)
-      plt.show()
-      #sess.run(setup_step) 
+    sess.run(initialize_step)
+    #while self.time < Tf:
+    for i in xrange(1000):
+      sess.run(setup_step) 
       sess.run(stream_step)
-      #sess.run(collide_step)
+      sess.run(collide_step)
+      if i % 1 == 0:
+        np_f = sess.run(self.Vel[0])
+        np_f = np.sqrt(np.square(np_f[0,:,:,0]) + np.square(np_f[0,:,:,1]))
+        plt.imshow(np_f)
+        plt.show()
       self.time += self.dt
 
 
