@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 fourcc = cv2.cv.CV_FOURCC('m', 'p', '4', 'v') 
 video = cv2.VideoWriter()
 
-shape = [128, 512]
+shape = [64, 256]
 success = video.open('video.mov', fourcc, 4, (shape[1], shape[0]), True)
 
 FLAGS = tf.app.flags.FLAGS
@@ -29,7 +29,7 @@ def make_car_boundary(car_name="cars/car_001.png", shape=[256,1024], car_shape=(
   resized_img = -np.rint(resized_img/255.0).astype(int).astype(np.float32) + 1.0
   resized_img = resized_img.reshape([1, car_shape[1], car_shape[0], 1])
   boundary = np.zeros((1, shape[0], shape[1], 1), dtype=np.float32)
-  boundary[:, shape[0]-car_shape[1]:, 64:64+car_shape[0], :] = resized_img
+  #boundary[:, shape[0]-car_shape[1]:, 64:64+car_shape[0], :] = resized_img
   boundary[:,0,:,:] = 1.0
   boundary[:,shape[0]-1,:,:] = 1.0
   return boundary
