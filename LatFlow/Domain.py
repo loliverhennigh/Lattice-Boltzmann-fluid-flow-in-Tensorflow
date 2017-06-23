@@ -7,6 +7,7 @@ import time
 from tqdm import *
 
 import D2Q9
+import D3Q19
 
 class Domain():
   def __init__(self,
@@ -16,6 +17,7 @@ class Domain():
                boundary,
                dx=1.0,
                dt=1.0):
+
     if method == "D2Q9":
       self.Nneigh = 9
       self.Dim    = 2
@@ -23,6 +25,14 @@ class Domain():
       self.C      = tf.reshape(D2Q9.LVELOC, self.Dim*[1] + [self.Nneigh,3])
       self.Op     = tf.reshape(D2Q9.BOUNCE, self.Dim*[1] + [self.Nneigh,self.Nneigh])
       self.St     = D2Q9.STREAM
+
+    if method == "D3Q19":
+      self.Nneigh = 19
+      self.Dim    = 3
+      self.W      = tf.reshape(D3Q19.WEIGHTS, (self.Dim + 1)*[1] + [self.Nneigh])
+      self.C      = tf.reshape(D3Q19.LVELOC, self.Dim*[1] + [self.Nneigh,3])
+      self.Op     = tf.reshape(D3Q19.BOUNCE, self.Dim*[1] + [self.Nneigh,self.Nneigh])
+      self.St     = D3Q19.STREAM
 
     if nu is not list:
       nu = [nu]

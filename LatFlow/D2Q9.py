@@ -8,9 +8,6 @@ WEIGHTS = tf.constant([4./9., 1./9., 1./9., 1./9., 1./9., 1./36., 1./36., 1./36.
 # Lattice lveloc
 LVELOC = tf.constant( [ [0,0,0], [1,0,0], [0,1,0], [-1,0,0], [0,-1,0], [1,1,0], [-1,1,0], [-1,-1,0], [1,-1,0]     ], dtype=1)
 
-# Lattice Opposite
-OPPOSITE = tf.constant([ 0, 3, 4, 1, 2, 7, 8, 5, 6 ], dtype=1)
-
 # Lattice bounce back kernel
 BOUNCE = np.array([[ 1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0],
                    [ 0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0],
@@ -35,8 +32,6 @@ STREAM[0,2,6,6] = 1.0
 STREAM[2,2,7,7] = 1.0
 STREAM[2,0,8,8] = 1.0
 STREAM = tf.constant(STREAM, dtype=1)
-
-
 
 
 
