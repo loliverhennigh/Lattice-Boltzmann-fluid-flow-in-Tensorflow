@@ -95,15 +95,18 @@ class Domain():
 
     # calc v dots
     #vel = vel_no_boundary + self.dt*self.tau[0]*(bforce_no_boundary/(rho_no_boundary + 1e-10))
-    vel_dot_vel = tf.expand_dims(tf.reduce_sum(vel * vel, axis=3), axis=3)
-    vel_dot_c = simple_conv(vel, tf.transpose(self.C, [0,1,3,2]))
+    vel_dot_vel = tf.expand_dims(tf.reduce_sum(vel * vel, axis=self.Dim+1), axis=self.Dim+1)
+    if self.Dim == 2:
+      vel_dot_c = simple_conv(vel, tf.transpose(self.C, [0,1,3,2]))
+    else:
+      vel_dot_c = simple_conv(vel, tf.transpose(self.C, [0,1,2,4,3]))
 
     # calc Feq
     Feq = self.W * rho * (1.0 + 3.0*vel_dot_c/self.Cs + 4.5*vel_dot_c*vel_dot_c/(self.Cs*self.Cs) - 1.5*vel_dot_vel/(self.Cs*self.Cs))
 
     # collision calc
     NonEq = f - Feq
-    Q = tf.expand_dims(tf.reduce_sum(NonEq*NonEq*self.EEk, axis=3), axis=3)
+    Q = tf.expand_dims(tf.reduce_sum(NonEq*NonEq*self.EEk, axis=self.Dim+1), axis=self.Dim+1)
     Q = tf.sqrt(2.0*Q)
     tau = 0.5*(self.tau[0]+tf.sqrt(self.tau[0]*self.tau[0] + 6.0*Q*self.Sc/rho))
     f = f - NonEq/tau
@@ -119,7 +122,7 @@ class Domain():
     f_pad = pad_mobius(self.F[0])
     f_pad = simple_conv(f_pad, self.St)
     # calc new velocity and density
-    Rho = tf.expand_dims(tf.reduce_sum(f_pad, 3), 3)
+    Rho = tf.expand_dims(tf.reduce_sum(f_pad, self.Dim+1), self.Dim+1)
     Vel = simple_conv(f_pad, self.C)
     Vel = Vel/(self.Cs * Rho)
     # create steps
@@ -134,7 +137,7 @@ class Domain():
     f_pad = pad_mobius(self.F)
     f_pad = simple_conv(f_pad, self.St)
     # calc new velocity and density
-    Rho = tf.expand_dims(tf.reduce_sum(f_pad, 3), 3)
+    Rho = tf.expand_dims(tf.reduce_sum(f_pad, self.Dim+1), self.Dim+1)
     Vel = simple_conv(f_pad, self.C)
     Vel = Vel/(self.Cs * Rho)
     # create steps
@@ -164,7 +167,7 @@ class Domain():
     for i in tqdm(xrange(num_steps)):
       if (video_stream is not None) and (i % 5 == 0):
         frame = sess.run(self.Vel[0])
-        frame = np.sqrt(np.square(frame[0,:,:,0]) + np.square(frame[0,:,:,1]))
+        frame = np.sqrt(np.square(frame[0,:,32,:,0]) + np.square(frame[0,:,32,:,1]) + np.square(frame[0,:,32,:,2]))
         frame = np.uint8(255 * frame/np.max(frame))
         frame = cv2.applyColorMap(frame[:,:], 2)
         video_stream.write(frame)
