@@ -28,7 +28,7 @@ def make_car_boundary(shape, car_shape):
   resized_img = resized_img.reshape([1, car_shape[1], car_shape[0], 1])
   boundary = np.zeros((1, shape[0], shape[1], 1), dtype=np.float32)
   #boundary[:, shape[0]-car_shape[1]:, 64:64+car_shape[0], :] = resized_img
-  boundary[:, shape[0]/2-30:shape[0]/2+30, shape[1]-30:shape[1]+30, :] = 1.0
+  boundary[:, shape[0]/2-30:shape[0]/2+30, shape[0]-30:shape[0]+30, :] = 1.0
   boundary[:,0,:,:] = 1.0
   boundary[:,shape[0]-1,:,:] = 1.0
   return boundary
@@ -149,7 +149,7 @@ def run():
   sess.run(init)
 
   # run steps
-  domain.Solve(sess, 100, initialize_step, setup_step, car_save, 10)
+  domain.Solve(sess, 20, initialize_step, setup_step, car_save, 10)
 
 def main(argv=None):  # pylint: disable=unused-argument
   run()
