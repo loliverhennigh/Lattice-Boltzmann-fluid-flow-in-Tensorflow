@@ -15,15 +15,15 @@ import matplotlib.pyplot as plt
 fourcc = cv2.cv.CV_FOURCC('m', 'p', '4', 'v') 
 video = cv2.VideoWriter()
 
-shape = [64, 64, 128]
+shape = [32, 32, 128]
 
-success = video.open('video.mov', fourcc, 60, (shape[1], shape[0]), True)
+success = video.open('video.mov', fourcc, 60, (4*128, 128), True)
 
 FLAGS = tf.app.flags.FLAGS
 
 def make_ball_boundary(shape):
   boundary = np.zeros([1] + shape + [1], dtype=np.float32)
-  boundary[:, shape[0]-10:shape[0]+10,  shape[1]-10:shape[1]+10, shape[0]-10:shape[0]+10] = 1.0
+  boundary[:, shape[0]/2-5:shape[0]/2+5,  shape[1]/2-5:shape[1]/2+5, shape[0]/2-5:shape[0]/2+5] = 1.0
   return boundary
 
 def ball_init_step(domain, value=0.04):
@@ -52,7 +52,7 @@ def ball_setup_step(domain, value=0.004):
 
   # input vel on left side
   f_out = domain.F[0][:,:,:,1:]
-  f_edge = tf.split(domain.F[0][:,:,:,0:1], 19, axis=4)
+  f_edge = tf.split(domain.F[0][:,:,:,0:1], 15, axis=4)
 
   # new in distrobution
   f_edge[1] = 1.0/3.0*(-2*f_edge[0]-4*f_edge[10]-4*f_edge[12]-4*f_edge[14]-f_edge[2]-2*f_edge[3]-2*f_edge[4]-2*f_edge[5]-2*f_edge[6]-4*f_edge[8]+2*(value+1.0))
@@ -78,10 +78,10 @@ def ball_setup_step(domain, value=0.004):
 
   # remove vel on right side
   f_out = f[:,:,:,:-1]
-  f_edge = tf.split(f[:,:,:,-1:], 19, axis=4)
+  f_edge = tf.split(f[:,:,:,-1:], 15, axis=4)
 
   # new out distrobution
-  f_edge[2] = 1/3.0* (-2*f_edge[0]-f_edge[1]-2*(2*f_edge[11]+2*f_edge[13]+f_edge[3]+f_edge[4]+f_edge[5]+f_edge[6]+2*f_edge[7]+2*f_edge[9]-2.0))
+  f_edge[2] = 1/3.0* (-2*f_edge[0]-f_edge[1]-2*(2*f_edge[11]+2*f_edge[13]+f_edge[3]+f_edge[4]+f_edge[5]+f_edge[6]+2*f_edge[7]+2*f_edge[9]-1.0))
   f_edge[8] = 1/24.0*(-2*f_edge[0] - 4*f_edge[1] - 4*f_edge[11] - 4*f_edge[13] - 5*f_edge[3] + f_edge[4] - 5*f_edge[5] + f_edge[6] +20*f_edge[7] - 4*f_edge[9] + 2.0)
   f_edge[10]= 1/24.0*(-2*f_edge[0] - 4*f_edge[1] - 4*f_edge[11] - 4*f_edge[13] - 5*f_edge[3] + f_edge[4] + f_edge[5] - 5*f_edge[6] - 4*f_edge[7] + 20*f_edge[9] + 2.0)
   f_edge[12]= 1/24.0*(-2*f_edge[0] - 4*f_edge[1] + 20*f_edge[11] - 4*f_edge[13] + f_edge[3] - 5*f_edge[4] - 5*f_edge[5] + f_edge[6] -  4*f_edge[7] - 4*f_edge[9] + 2.0)
@@ -109,17 +109,17 @@ def ball_setup_step(domain, value=0.004):
 
 def run():
   # constants
-  input_vel = 0.1
+  input_vel = 0.03
   Re = 10000.0
   nu = input_vel*(2.0*30.)/Re
   Ndim = shape
   boundary = make_ball_boundary(shape=Ndim)
 
   # domain
-  domain = dom.Domain("D3Q19", nu, Ndim, boundary)
+  domain = dom.Domain("D3Q15", nu, Ndim, boundary)
 
   # make lattice state, boundary and input velocity
-  initialize_step = ball_init_step(domain, value=0.08)
+  initialize_step = ball_init_step(domain, value=input_vel)
   setup_step = ball_setup_step(domain, value=input_vel)
 
   # init things
@@ -132,7 +132,7 @@ def run():
   sess.run(init)
 
   # run steps
-  domain.Solve(sess, 100, initialize_step, setup_step, video)
+  domain.Solve(sess, 500, initialize_step, setup_step, video)
 
 def main(argv=None):  # pylint: disable=unused-argument
   run()

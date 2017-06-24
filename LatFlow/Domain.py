@@ -7,6 +7,7 @@ import time
 from tqdm import *
 
 import D2Q9
+import D3Q15
 import D3Q19
 
 class Domain():
@@ -25,6 +26,14 @@ class Domain():
       self.C      = tf.reshape(D2Q9.LVELOC, self.Dim*[1] + [self.Nneigh,3])
       self.Op     = tf.reshape(D2Q9.BOUNCE, self.Dim*[1] + [self.Nneigh,self.Nneigh])
       self.St     = D2Q9.STREAM
+
+    if method == "D3Q15":
+      self.Nneigh = 15
+      self.Dim    = 3
+      self.W      = tf.reshape(D3Q15.WEIGHTS, (self.Dim + 1)*[1] + [self.Nneigh])
+      self.C      = tf.reshape(D3Q15.LVELOC, self.Dim*[1] + [self.Nneigh,3])
+      self.Op     = tf.reshape(D3Q15.BOUNCE, self.Dim*[1] + [self.Nneigh,self.Nneigh])
+      self.St     = D3Q15.STREAM
 
     if method == "D3Q19":
       self.Nneigh = 19
@@ -117,6 +126,41 @@ class Domain():
     collid_step = self.F[0].assign(f)
     return collid_step
 
+  """
+  def CollideMP(self):
+    # boundary bounce piece
+    f_boundary = tf.multiply(self.F[0], self.boundary)
+    f_boundary = simple_conv(f_boundary, self.Op)
+
+    # make vel_mix, rho_mix, vel, and rho
+    f   = self.F
+    vel_mix = tf.expand_dims(tf.reduce_sum(self.Vel*self.Rho/self.tau, axis=0), axis=0)
+    rho_mix = tf.expand_dims(tf.reduce_sum(self.Rho/self.tau + 1e-10 , axis=0), axis=0) # to stop dividing by zero
+    vel_mix = vel_mix/rho_mix
+    rho = self.Rho
+    vel = vel_mix
+    
+    # calc v dots
+    #vel = vel_no_boundary + self.dt*self.tau[0]*(bforce_no_boundary/(rho_no_boundary + 1e-10))
+    vel_dot_vel = tf.expand_dims(tf.reduce_sum(vel * vel, axis=self.Dim+1), axis=self.Dim+1)
+    if self.Dim == 2:
+      vel_dot_c = simple_conv(vel, tf.transpose(self.C, [0,1,3,2]))
+    else:
+      vel_dot_c = simple_conv(vel, tf.transpose(self.C, [0,1,2,4,3]))
+
+    # calc Feq
+    Feq = self.W * rho * (1.0 + 3.0*vel_dot_c/self.Cs + 4.5*vel_dot_c*vel_dot_c/(self.Cs*self.Cs) - 1.5*vel_dot_vel/(self.Cs*self.Cs))
+
+    # collision calc
+    f = f - (f - Feq)/self.tau
+
+    # combine boundary and no boundary values
+    f_no_boundary = tf.multiply(f, (1.0-self.boundary))
+    f = f_no_boundary + f_boundary
+    collid_step = self.F.assign(f)
+    return collid_step
+  """
+
   def StreamSC(self):
     # stream f
     f_pad = pad_mobius(self.F[0])
@@ -132,6 +176,7 @@ class Domain():
     step = tf.group(*[stream_step, Rho_step, Vel_step])
     return step
 
+  """
   def StreamMP(self):
     # stream f
     f_pad = pad_mobius(self.F)
@@ -146,6 +191,7 @@ class Domain():
     Vel_step =    self.Vel.assign(Vel)
     step = tf.group(*[stream_step, Rho_step, Vel_step])
     return step
+  """
 
   def Initialize(self):
     np_f_zeros = np.zeros([1] + self.Ndim + [self.Nneigh], dtype=np.float32)
@@ -154,28 +200,22 @@ class Domain():
     assign_step = self.F[0].assign(f_zero)
     return assign_step 
 
-  def Solve(self, sess, Tf, initialize_step, setup_step, video_stream=None):
+  def Solve(self, sess, Tf, initialize_step, setup_step, save_step, save_interval):
     # make steps
-    #assign_step = self.Initialize()
+    assign_step = self.Initialize()
     stream_step = self.StreamSC() 
     collide_step = self.CollideSC()
 
     # run solver
-    #sess.run(assign_step)
+    sess.run(assign_step)
     sess.run(initialize_step)
     num_steps = int(Tf/self.dt)
     for i in tqdm(xrange(num_steps)):
-      if (video_stream is not None) and (i % 5 == 0):
-        frame = sess.run(self.Vel[0])
-        frame = np.sqrt(np.square(frame[0,:,32,:,0]) + np.square(frame[0,:,32,:,1]) + np.square(frame[0,:,32,:,2]))
-        frame = np.uint8(255 * frame/np.max(frame))
-        frame = cv2.applyColorMap(frame[:,:], 2)
-        video_stream.write(frame)
+      if int(self.time/save_interval) > int((self.time-self.dt)/save_interval):
+        save_step(self, sess)
       sess.run(setup_step) 
       sess.run(collide_step)
       sess.run(stream_step)
       self.time += self.dt
-    if video_stream is not None:
-      video_stream.release()
 
 
