@@ -5,5 +5,5 @@ A Lattice Boltzmann fluid flow simulation written in Tensorflow. The flow librar
 
 [![IMAGE ALT TEXT HERE](http://img.youtube.com/vi/n_9J0Bn9k8k/0.jpg)](https://www.youtube.com/watch?v=n_9J0Bn9k8k)
 [![IMAGE ALT TEXT HERE](http://img.youtube.com/vi/QZLrJAXkVF8/0.jpg)](https://www.youtube.com/watch?v=QZLrJAXkVF8)
-[![IMAGE ALT TEXT HERE](http://img.youtube.com/vi/QZLrJAXkVF8/0.jpg)](https://www.youtube.com/watch?v=QZLrJAXkVF8)
+[![IMAGE ALT TEXT HERE](http://img.youtube.com/vi/0p5Efw5M8Ns/0.jpg)](https://www.youtube.com/watch?v=0p5Efw5M8Ns)
 
