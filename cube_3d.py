@@ -93,7 +93,7 @@ def run():
   sess.run(init)
 
   # run steps
-  domain.Solve(sess, 2000, initialize_step, setup_step, cube_save, 1)
+  domain.Solve(sess, 6000, initialize_step, setup_step, cube_save, 10)
 
 def main(argv=None):  # pylint: disable=unused-argument
   run()

@@ -5,30 +5,27 @@ import numpy as np
 import tensorflow as tf
 import math 
 import cv2
-from utils import *
 
-import Domain as dom
-
-import matplotlib.pyplot as plt 
+import LatFlow.Domain as dom
+from   LatFlow.utils  import *
 
 # video init
 fourcc = cv2.cv.CV_FOURCC('m', 'p', '4', 'v') 
 video = cv2.VideoWriter()
 
-shape = [300, 3000]
-success = video.open('car_flow.mov', fourcc, 60, (shape[1], shape[0]), True)
+shape = [128, 512]
+success = video.open('car_flow.mov', fourcc, 30, (shape[1], shape[0]), True)
 
 FLAGS = tf.app.flags.FLAGS
 
 def make_car_boundary(shape, car_shape):
-  img = cv2.imread("../cars/car_001.png", 0)
+  img = cv2.imread("./cars/car_001.png", 0)
   img = cv2.flip(img, 1)
   resized_img = cv2.resize(img, car_shape)
   resized_img = -np.rint(resized_img/255.0).astype(int).astype(np.float32) + 1.0
   resized_img = resized_img.reshape([1, car_shape[1], car_shape[0], 1])
   boundary = np.zeros((1, shape[0], shape[1], 1), dtype=np.float32)
-  #boundary[:, shape[0]-car_shape[1]:, 64:64+car_shape[0], :] = resized_img
-  boundary[:, shape[0]/2-30:shape[0]/2+30, shape[0]-30:shape[0]+30, :] = 1.0
+  boundary[:, shape[0]-car_shape[1]:, 32:32+car_shape[0], :] = resized_img
   boundary[:,0,:,:] = 1.0
   boundary[:,shape[0]-1,:,:] = 1.0
   return boundary
@@ -57,9 +54,6 @@ def car_setup_step(domain, value=0.001):
     vx = value*4.0/(l*l)*(l*yp - yp*yp)
     u[0,i,0,0] = vx
   u = u.astype(np.float32)
-  #u = np.maximum(u, 0.0)
-  #u[0,0,0,0] = 0.0
-  #u[0,shape[0]-1,0,0] = 0.0
   u = tf.constant(u)
 
   # input vel on left side
@@ -127,10 +121,9 @@ def car_save(domain, sess):
 def run():
   # constants
   input_vel = 0.1
-  Re = 40000.0
-  nu = input_vel*(2.0*30.)/Re
+  nu = input_vel*(0.5)
   Ndim = shape
-  boundary = make_car_boundary(shape=Ndim, car_shape=(int(Ndim[1]/1.3), int(Ndim[0]/1.3)))
+  boundary = make_car_boundary(shape=Ndim, car_shape=(int(Ndim[1]/1.2), int(Ndim[0]/1.5)))
 
   # domain
   domain = dom.Domain("D2Q9", nu, Ndim, boundary)
@@ -149,7 +142,7 @@ def run():
   sess.run(init)
 
   # run steps
-  domain.Solve(sess, 20, initialize_step, setup_step, car_save, 10)
+  domain.Solve(sess, 10000, initialize_step, setup_step, car_save, 60)
 
 def main(argv=None):  # pylint: disable=unused-argument
   run()

@@ -92,7 +92,7 @@ class Domain():
         elif self.Dim == 3:
           self.EEk = self.EEk + tf.abs(self.C[:,:,:,:,n] * self.C[:,:,:,:,m])
 
-  def CollideSC(self):
+  def CollideSC(self, graph_unroll=False):
     # boundary bounce piece
     f_boundary = tf.multiply(self.F[0], self.boundary)
     f_boundary = simple_conv(f_boundary, self.Op)
@@ -123,8 +123,15 @@ class Domain():
     # combine boundary and no boundary values
     f_no_boundary = tf.multiply(f, (1.0-self.boundary))
     f = f_no_boundary + f_boundary
-    collid_step = self.F[0].assign(f)
-    return collid_step
+
+    if not graph_unroll:
+      # make step
+      collid_step = self.F[0].assign(f)
+      return collid_step
+    else:
+      # put computation back in graph
+      self.F[0] = f
+      
 
   """
   def CollideMP(self):
@@ -161,7 +168,7 @@ class Domain():
     return collid_step
   """
 
-  def StreamSC(self):
+  def StreamSC(self, graph_unroll=False):
     # stream f
     f_pad = pad_mobius(self.F[0])
     f_pad = simple_conv(f_pad, self.St)
@@ -169,12 +176,17 @@ class Domain():
     Rho = tf.expand_dims(tf.reduce_sum(f_pad, self.Dim+1), self.Dim+1)
     Vel = simple_conv(f_pad, self.C)
     Vel = Vel/(self.Cs * Rho)
-    # create steps
-    stream_step = self.F[0].assign(f_pad)
-    Rho_step =    self.Rho[0].assign(Rho)
-    Vel_step =    self.Vel[0].assign(Vel)
-    step = tf.group(*[stream_step, Rho_step, Vel_step])
-    return step
+    if not graph_unroll:
+      # create steps
+      stream_step = self.F[0].assign(f_pad)
+      Rho_step =    self.Rho[0].assign(Rho)
+      Vel_step =    self.Vel[0].assign(Vel)
+      step = tf.group(*[stream_step, Rho_step, Vel_step])
+      return step
+    else:
+      self.F[0] = f_pad
+      self.Rho_step[0] = Rho
+      self.Vel_step[0] = Vel
 
   """
   def StreamMP(self):
@@ -193,12 +205,15 @@ class Domain():
     return step
   """
 
-  def Initialize(self):
+  def Initialize(self, graph_unroll=False):
     np_f_zeros = np.zeros([1] + self.Ndim + [self.Nneigh], dtype=np.float32)
     f_zero = tf.constant(np_f_zeros)
     f_zero = f_zero + self.W
-    assign_step = self.F[0].assign(f_zero)
-    return assign_step 
+    if not graph_unroll:
+      assign_step = self.F[0].assign(f_zero)
+      return assign_step 
+    else:
+      self.F[0] = f_zero
 
   def Solve(self, sess, Tf, initialize_step, setup_step, save_step, save_interval):
     # make steps
@@ -217,5 +232,18 @@ class Domain():
       sess.run(collide_step)
       sess.run(stream_step)
       self.time += self.dt
+
+  def Unroll(self, start_f, num_steps, setup_computation):
+    # run solver
+    self.F[0] = start_f
+    F_return_state = []
+    for i in xrange(num_steps):
+      setup_computation(self)
+      self.CollideSC(graph_unroll=True)
+      self.StreamSC(graph_unroll=True)
+      F_return_state.append(self.F[0])
+    return F_return_state
+
+
 
 
