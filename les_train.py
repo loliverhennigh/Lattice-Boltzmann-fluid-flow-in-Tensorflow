@@ -9,6 +9,7 @@ import os
 
 import LatFlow.Domain as dom
 from   LatFlow.utils  import *
+import matplotlib.pyplot as plt
 
 from tqdm import *
 
@@ -17,7 +18,7 @@ fourcc = cv2.cv.CV_FOURCC('m', 'p', '4', 'v')
 video = cv2.VideoWriter()
 
 # make video
-shape = [128, 256]
+shape = [128, 128]
 success = video.open('les.mov', fourcc, 30, (shape[1], shape[0]*2), True)
 
 FLAGS = tf.app.flags.FLAGS
@@ -29,11 +30,12 @@ tf.app.flags.DEFINE_float('lr', 0.001,
 TRAIN_DIR = './network'
 
 def make_flow_boundary(shape, compression_factor):
-  pos = np.random.randint(1, shape[0]/compression_factor - 1) * compression_factor
+  pos_x = np.random.randint(1, shape[0]/compression_factor - 1) * compression_factor
+  pos_y = np.random.randint(10, shape[0]/compression_factor - 1) * compression_factor
   square_size = 2 * compression_factor
   boundary = np.zeros((1, shape[0], shape[1], 1), dtype=np.float32)
-  boundary[:, pos-square_size:pos+square_size, 
-              shape[0]/2-square_size:shape[0]/2+square_size, :] = 1.0
+  boundary[:, pos_x-square_size:pos_x+square_size, 
+              pos_y-square_size:pos_y+square_size, :] = 1.0
   boundary[:,0:compression_factor,:,:] = 1.0
   boundary[:,-compression_factor:,:,:] = 1.0
   return boundary
@@ -143,8 +145,8 @@ def run():
   Ndim = shape
 
   # les train details
-  batch_size = 4
-  les_ratio = 2
+  batch_size = 1
+  les_ratio = 1
   compression_factor = pow(2, les_ratio)
   nu_les = nu/compression_factor
   Ndim_les = [x / compression_factor for x in shape]
@@ -173,7 +175,10 @@ def run():
    
       # loss
       lattice_true_out = filter_function(lattice_out, compression_factor)
-      loss = tf.nn.l2_loss(lattice_les_out - lattice_true_out)
+      lattice_true_out = lattice_true_out[:,1:-1,1:-1]
+      lattice_les_out = lattice_les_out[:,1:-1,1:-1]
+      loss_lattice = tf.abs((lattice_les_out - lattice_true_out) * (1.0 - domain_les.boundary[:,1:-1,1:-1]))
+      loss = tf.nn.l2_loss((lattice_les_out - lattice_true_out) * (1.0 - domain_les.boundary[:,1:-1,1:-1]))
       tf.summary.scalar('loss', loss)
    
       # train op
@@ -210,19 +215,35 @@ def run():
       train_boundaries = np.concatenate(train_boundaries, axis=0)
       train_lattices = sess.run(init_lattice_in, feed_dict={boundary_in: train_boundaries})
       print("making dataset")
-      for i in tqdm(xrange(100)): # run simulation a few steps to get rid of pressure waves at begining
+      for i in tqdm(xrange(300)): # run simulation a few steps to get rid of pressure waves at begining
         train_lattices = sess.run(lattice_out, feed_dict={boundary_in: train_boundaries,
                                                           lattice_in: train_lattices})
 
       for step in xrange(1000):
         _ , loss_value, Sc = sess.run([train_op, loss, domain_les.Sc],feed_dict={boundary_in: train_boundaries,
                                                               lattice_in: train_lattices})
-        vel, vel_les = sess.run([domain.Vel[0], domain_les.Sc],feed_dict={boundary_in: train_boundaries,
-                                                              lattice_in: train_lattices})
+        train_lattices = sess.run(lattice_out, feed_dict={boundary_in: train_boundaries,
+                                                          lattice_in: train_lattices})
+
+        if step%20 == 0:
+          vel, vel_les, l_lat = sess.run([domain.Rho[0][0], domain_les.Rho[0][0], loss_lattice],feed_dict={boundary_in: train_boundaries,
+                                                                                      lattice_in: train_lattices})
+          #vel = np.sqrt(np.square(vel[:,:,0]) + np.square(vel[:,:,1]) + np.square(vel[:,:,2]))
+          #vel_les = np.sqrt(np.square(vel_les[:,:,0]) + np.square(vel_les[:,:,1]) + np.square(vel_les[:,:,2]))
+          """
+          vel = vel[:,:,0]
+          vel_les = vel_les[:,:,0]
+          plt.imshow(vel)
+          plt.show()
+          plt.imshow(vel_les)
+          plt.show()
+          plt.imshow(l_lat[0,:,:,0])
+          plt.show()
+          """
   
         assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
   
-        if step%100 == 0:
+        if step%10 == 0:
           summary_str = sess.run(summary_op, feed_dict={boundary_in: train_boundaries,
                                                         lattice_in: train_lattices})
           summary_writer.add_summary(summary_str, step) 
