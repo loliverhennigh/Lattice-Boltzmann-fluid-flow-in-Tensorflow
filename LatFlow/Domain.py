@@ -54,10 +54,17 @@ class Domain():
     self.dx     = dx
     self.Cs     = dx/dt
     self.Step   = 1
-    self.Sc     = 0.17
+    if train_les:
+      self.Sc     = tf.get_variable("Sm_constant", [1], initializer=tf.constant_initializer(0.17))
+    else:
+      self.Sc     = 0.17
     self.Ndim   = Ndim
     self.Ncells = np.prod(np.array(Ndim))
-    self.boundary = tf.constant(boundary)
+    if type(boundary) is np.ndarray:
+      self.boundary = tf.constant(boundary)
+    else:
+      self.boundary = boundary
+    self.Nlat   = int(boundary.get_shape()[0])
 
     self.Nl     = len(nu)
     self.tau    = []
@@ -80,12 +87,12 @@ class Domain():
       self.Gs.append(      0.0)
       self.Rhoref.append(  200.0)
       self.Psi.append(     4.0)
-      self.F.append(       tf.Variable(np.zeros([1] + Ndim + [self.Nneigh], dtype=np.float32)))
-      self.Ftemp.append(   tf.Variable(np.zeros([1] + Ndim + [self.Nneigh], dtype=np.float32)))
-      self.Vel.append(     tf.Variable(np.zeros([1] + Ndim + [3], dtype=np.float32)))
-      self.BForce.append(  tf.Variable(np.zeros([1] + Ndim + [3], dtype=np.float32)))
-      self.Rho.append(     tf.Variable(np.zeros([1] + Ndim + [1], dtype=np.float32)))
-      self.IsSolid.append( tf.Variable(np.zeros([1] + Ndim + [1], dtype=np.float32)))
+      self.F.append(       tf.Variable(np.zeros([self.Nlat] + Ndim + [self.Nneigh], dtype=np.float32), trainable=False))
+      self.Ftemp.append(   tf.Variable(np.zeros([self.Nlat] + Ndim + [self.Nneigh], dtype=np.float32), trainable=False))
+      self.Vel.append(     tf.Variable(np.zeros([self.Nlat] + Ndim + [3], dtype=np.float32), trainable=False))
+      self.BForce.append(  tf.Variable(np.zeros([self.Nlat] + Ndim + [3], dtype=np.float32), trainable=False))
+      self.Rho.append(     tf.Variable(np.zeros([self.Nlat] + Ndim + [1], dtype=np.float32), trainable=False))
+      self.IsSolid.append( tf.Variable(np.zeros([self.Nlat] + Ndim + [1], dtype=np.float32), trainable=False))
 
     self.EEk = tf.zeros(self.Dim*[1] + [self.Nneigh])
     for n in xrange(3):
@@ -103,8 +110,7 @@ class Domain():
     # make vel bforce and rho
     f   = self.F[0]
     vel = self.Vel[0]
-    #rho = self.Rho[0] + 1e-12 # to stop dividing by zero
-    rho = self.Rho[0]# to stop dividing by zero
+    rho = self.Rho[0] + 1e-10 # to stop dividing by zero
 
     # calc v dots
     #vel = vel_no_boundary + self.dt*self.tau[0]*(bforce_no_boundary/(rho_no_boundary + 1e-10))
@@ -121,7 +127,7 @@ class Domain():
     NonEq = f - Feq
     if self.les:
       Q = tf.expand_dims(tf.reduce_sum(NonEq*NonEq*self.EEk, axis=self.Dim+1), axis=self.Dim+1)
-      Q = tf.sqrt(2.0*Q)
+      Q = tf.sqrt(1e-6 + 2.0*Q)
       tau = 0.5*(self.tau[0]+tf.sqrt(self.tau[0]*self.tau[0] + 6.0*Q*self.Sc/rho))
     else:
       tau = self.tau[0]
@@ -192,8 +198,8 @@ class Domain():
       return step
     else:
       self.F[0] = f_pad
-      self.Rho_step[0] = Rho
-      self.Vel_step[0] = Vel
+      self.Rho[0] = Rho
+      self.Vel[0] = Vel
 
   """
   def StreamMP(self):
@@ -211,6 +217,22 @@ class Domain():
     step = tf.group(*[stream_step, Rho_step, Vel_step])
     return step
   """
+
+  def InitializeSC(self, graph_unroll=False):
+    # calc new velocity and density
+    Rho = tf.expand_dims(tf.reduce_sum(self.F[0], self.Dim+1), self.Dim+1)
+    Vel = simple_conv(self.F[0], self.C)
+    Vel = Vel/(self.Cs * Rho)
+    if not graph_unroll:
+      # create steps
+      stream_step = self.F[0].assign(self.F[0])
+      Rho_step =    self.Rho[0].assign(Rho)
+      Vel_step =    self.Vel[0].assign(Vel)
+      step = tf.group(*[stream_step, Rho_step, Vel_step])
+      return step
+    else:
+      self.Rho[0] = Rho
+      self.Vel[0] = Vel
 
   def Initialize(self, graph_unroll=False):
     np_f_zeros = np.zeros([1] + self.Ndim + [self.Nneigh], dtype=np.float32)
@@ -244,26 +266,11 @@ class Domain():
   def Unroll(self, start_f, num_steps, setup_computation):
     # run solver
     self.F[0] = start_f
-    F_return_state = []
+    self.InitializeSC(graph_unroll=True)
     for i in xrange(num_steps):
-      setup_computation(self)
+      setup_computation(self, graph_unroll=True)
       self.CollideSC(graph_unroll=True)
       self.StreamSC(graph_unroll=True)
-      F_return_state.append(self.F[0])
-    return F_return_state
-
-  def Unroll_les_train(self, start_f, num_steps, setup_computation):
-    # run solver
-    self.F[0] = start_f
-    F_return_state = []
-    for i in xrange(num_steps):
-      setup_computation(self)
-      self.CollideSC(graph_unroll=True)
-      self.StreamSC(graph_unroll=True)
-      F_return_state.append(self.F[0])
-    return F_return_state
-
-
-
+    return self.F[0]
 
 
