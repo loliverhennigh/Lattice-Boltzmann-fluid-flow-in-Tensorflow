@@ -55,7 +55,7 @@ class Domain():
     self.Cs     = dx/dt
     self.Step   = 1
     if train_les:
-      self.Sc     = tf.get_variable("Sm_constant", [1], initializer=tf.constant_initializer(0.17))
+      self.Sc     = tf.get_variable("Sm_constant", 1, initializer=tf.constant_initializer(0.17))
     else:
       self.Sc     = 0.17
     self.Ndim   = Ndim

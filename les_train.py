@@ -5,6 +5,7 @@ import numpy as np
 import tensorflow as tf
 import math 
 import cv2
+import os
 
 import LatFlow.Domain as dom
 from   LatFlow.utils  import *
@@ -195,7 +196,8 @@ def run():
       saver_restore = tf.train.Saver(variables_to_restore)
       ckpt = tf.train.get_checkpoint_state(TRAIN_DIR)
       if ckpt is not None:
-        saver_restore.restore(sess, ckpt.model_checkpoint_path)
+        pass
+        #saver_restore.restore(sess, ckpt.model_checkpoint_path)
    
       # Summary op
       graph_def = sess.graph.as_graph_def(add_shapes=True)
@@ -208,25 +210,28 @@ def run():
       train_boundaries = np.concatenate(train_boundaries, axis=0)
       train_lattices = sess.run(init_lattice_in, feed_dict={boundary_in: train_boundaries})
       print("making dataset")
-      for i in tqdm(xrange(1000)): # run simulation a few steps to get rid of pressure waves at begining
+      for i in tqdm(xrange(100)): # run simulation a few steps to get rid of pressure waves at begining
         train_lattices = sess.run(lattice_out, feed_dict={boundary_in: train_boundaries,
                                                           lattice_in: train_lattices})
 
       for step in xrange(1000):
-        _ , loss_value = sess.run([train_op, loss],feed_dict={boundary_in: train_boundaries,
+        _ , loss_value, Sc = sess.run([train_op, loss, domain_les.Sc],feed_dict={boundary_in: train_boundaries,
+                                                              lattice_in: train_lattices})
+        vel, vel_les = sess.run([domain.Vel[0], domain_les.Sc],feed_dict={boundary_in: train_boundaries,
                                                               lattice_in: train_lattices})
   
         assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
   
-        if current_step%20 == 0:
-          summary_str = sess.run(summary_op, feed_dict={boundary:fd_boundary})
-          summary_writer.add_summary(summary_str, current_step) 
+        if step%100 == 0:
+          summary_str = sess.run(summary_op, feed_dict={boundary_in: train_boundaries,
+                                                        lattice_in: train_lattices})
+          summary_writer.add_summary(summary_str, step) 
           print("loss value at " + str(loss_value))
-          print("Sc constant at " + str(loss_value))
+          print("Sc constant at " + str(Sc))
   
-        if current_step%100 == 0:
+        if step%500 == 0:
           checkpoint_path = os.path.join(TRAIN_DIR, 'model.ckpt')
-          saver.save(sess, checkpoint_path, global_step=global_step)  
+          saver.save(sess, checkpoint_path, global_step=step)  
           print("saved to " + TRAIN_DIR)
 
   elif FLAGS.run_mode == "eval":
