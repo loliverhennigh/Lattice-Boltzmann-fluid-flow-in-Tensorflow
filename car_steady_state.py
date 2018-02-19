@@ -13,7 +13,7 @@ from   LatFlow.utils  import *
 fourcc = cv2.cv.CV_FOURCC('m', 'p', '4', 'v') 
 video = cv2.VideoWriter()
 
-shape = [128, 512]
+shape = [32, 128]
 success = video.open('car_flow.mov', fourcc, 30, (shape[1], shape[0]), True)
 
 FLAGS = tf.app.flags.FLAGS
@@ -26,7 +26,7 @@ def make_car_boundary(shape, car_shape):
   resized_img = resized_img.reshape([1, car_shape[1], car_shape[0], 1])
   boundary = np.zeros((1, shape[0], shape[1], 1), dtype=np.float32)
   boundary[:, shape[0]-car_shape[1]:, 32:32+car_shape[0], :] = resized_img
-  boundary[:,0,:,:] = 1.0
+  #boundary[:,0,:,:] = 1.0
   boundary[:,shape[0]-1,:,:] = 1.0
   return boundary
 
@@ -52,6 +52,7 @@ def car_setup_step(domain, value=0.001):
   for i in xrange(shape[0]):
     yp = i - 1.5
     vx = value*4.0/(l*l)*(l*yp - yp*yp)
+    #vx = value
     u[0,i,0,0] = vx
   u = u.astype(np.float32)
   u = tf.constant(u)
@@ -81,6 +82,7 @@ def car_setup_step(domain, value=0.001):
   vel_edge = vel_edge/rho_edge
   vel = tf.concat([vel_edge,vel_out],axis=2)
 
+  """
   # remove vel on right side
   f_out = f[:,:,:-1]
   f_edge = tf.split(f[:,:,-1:], 9, axis=3)
@@ -103,6 +105,7 @@ def car_setup_step(domain, value=0.001):
   vel_edge = simple_conv(f_edge, tf.reshape(domain.C, [1,1,domain.Nneigh, 3]))
   vel_edge = vel_edge/rho_edge
   vel = tf.concat([vel_out,vel_edge],axis=2)
+  """
 
   # make steps
   f_step =   domain.F[0].assign(f)
@@ -123,10 +126,10 @@ def run():
   input_vel = 0.1
   nu = input_vel*(0.5)
   Ndim = shape
-  boundary = make_car_boundary(shape=Ndim, car_shape=(int(Ndim[1]/1.2), int(Ndim[0]/1.5)))
+  boundary = make_car_boundary(shape=Ndim, car_shape=(int(Ndim[1]/1.6), int(Ndim[0]/2.3)))
 
   # domain
-  domain = dom.Domain("D2Q9", nu, Ndim, boundary)
+  domain = dom.Domain("D2Q9", nu, Ndim, boundary,dx=1.0, dt=1.0)
 
   # make lattice state, boundary and input velocity
   initialize_step = car_init_step(domain, value=0.08)

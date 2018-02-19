@@ -17,7 +17,9 @@ class Domain():
                Ndim,
                boundary,
                dx=1.0,
-               dt=1.0):
+               dt=1.0,
+               les=True,
+               train_les=False):
 
     if method == "D2Q9":
       self.Nneigh = 9
@@ -45,7 +47,8 @@ class Domain():
 
     if nu is not list:
       nu = [nu]
-   
+  
+    self.les    = les 
     self.time   = 0.0
     self.dt     = dt
     self.dx     = dx
@@ -100,7 +103,8 @@ class Domain():
     # make vel bforce and rho
     f   = self.F[0]
     vel = self.Vel[0]
-    rho = self.Rho[0] + 1e-10 # to stop dividing by zero
+    #rho = self.Rho[0] + 1e-12 # to stop dividing by zero
+    rho = self.Rho[0]# to stop dividing by zero
 
     # calc v dots
     #vel = vel_no_boundary + self.dt*self.tau[0]*(bforce_no_boundary/(rho_no_boundary + 1e-10))
@@ -115,9 +119,12 @@ class Domain():
 
     # collision calc
     NonEq = f - Feq
-    Q = tf.expand_dims(tf.reduce_sum(NonEq*NonEq*self.EEk, axis=self.Dim+1), axis=self.Dim+1)
-    Q = tf.sqrt(2.0*Q)
-    tau = 0.5*(self.tau[0]+tf.sqrt(self.tau[0]*self.tau[0] + 6.0*Q*self.Sc/rho))
+    if self.les:
+      Q = tf.expand_dims(tf.reduce_sum(NonEq*NonEq*self.EEk, axis=self.Dim+1), axis=self.Dim+1)
+      Q = tf.sqrt(2.0*Q)
+      tau = 0.5*(self.tau[0]+tf.sqrt(self.tau[0]*self.tau[0] + 6.0*Q*self.Sc/rho))
+    else:
+      tau = self.tau[0]
     f = f - NonEq/tau
 
     # combine boundary and no boundary values
@@ -224,6 +231,7 @@ class Domain():
     # run solver
     sess.run(assign_step)
     sess.run(initialize_step)
+    sess.run(stream_step)
     num_steps = int(Tf/self.dt)
     for i in tqdm(xrange(num_steps)):
       if int(self.time/save_interval) > int((self.time-self.dt)/save_interval):
@@ -243,6 +251,18 @@ class Domain():
       self.StreamSC(graph_unroll=True)
       F_return_state.append(self.F[0])
     return F_return_state
+
+  def Unroll_les_train(self, start_f, num_steps, setup_computation):
+    # run solver
+    self.F[0] = start_f
+    F_return_state = []
+    for i in xrange(num_steps):
+      setup_computation(self)
+      self.CollideSC(graph_unroll=True)
+      self.StreamSC(graph_unroll=True)
+      F_return_state.append(self.F[0])
+    return F_return_state
+
 
 
 

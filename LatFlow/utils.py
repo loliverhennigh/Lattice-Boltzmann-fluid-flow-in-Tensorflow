@@ -6,7 +6,11 @@ def simple_conv(x, k):
   if   len(x.get_shape()) == 4:
     y = tf.nn.conv2d(x, k, [1, 1, 1, 1],    padding='VALID')
   elif len(x.get_shape()) == 5:
+    print(x.get_shape())
     y = tf.nn.conv3d(x, k, [1, 1, 1, 1, 1], padding='VALID')
+    print(y.get_shape())
+    #y = y[:,:-1,0:-1,0:-1,:]
+    #y = y[:,:-1,0:-1,0:-1,:]
   return y
 
 def pad_mobius(f):

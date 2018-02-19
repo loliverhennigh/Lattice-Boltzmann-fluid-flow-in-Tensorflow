@@ -65,7 +65,7 @@ def lid_save(domain, sess):
 def run():
   # constants
   input_vel = 0.001
-  nu = input_vel*(0.5)
+  nu = input_vel*(10.0)
   Ndim = shape
   boundary = make_lid_boundary(shape=Ndim)
 
@@ -86,7 +86,7 @@ def run():
   sess.run(init)
 
   # run steps
-  domain.Solve(sess, 1000000, initialize_step, setup_step, lid_save, 60)
+  domain.Solve(sess, 1000, initialize_step, setup_step, lid_save, 60)
 
 def main(argv=None):  # pylint: disable=unused-argument
   run()
