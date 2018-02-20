@@ -61,9 +61,8 @@ class Domain():
     self.Ndim   = Ndim
     self.Ncells = np.prod(np.array(Ndim))
     if type(boundary) is np.ndarray:
-      self.boundary = tf.constant(boundary)
-    else:
-      self.boundary = boundary
+      boundary = tf.constant(boundary)
+    self.boundary = boundary
     self.Nlat   = int(boundary.get_shape()[0])
 
     self.Nl     = len(nu)

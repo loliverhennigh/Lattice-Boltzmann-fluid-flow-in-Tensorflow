@@ -15,27 +15,32 @@ from tqdm import *
 
 # video init
 fourcc = cv2.cv.CV_FOURCC('m', 'p', '4', 'v') 
-video = cv2.VideoWriter()
+video_a = cv2.VideoWriter()
+video_b = cv2.VideoWriter()
+video_c = cv2.VideoWriter()
 
 # make video
-shape = [128, 128]
-success = video.open('les.mov', fourcc, 30, (shape[1], shape[0]*2), True)
+shape = [256, 1024]
+success = video_a.open('les_a.mov', fourcc, 30, (shape[1], shape[0]*2), True)
+success = video_b.open('les_b.mov', fourcc, 30, (shape[1]/4, shape[0]*2/4), True)
+success = video_c.open('les_c.mov', fourcc, 30, ((shape[1]/4), (shape[0]/4)), True)
 
 FLAGS = tf.app.flags.FLAGS
 
 tf.app.flags.DEFINE_string('run_mode', 'eval',
                           """ run mode """)
-tf.app.flags.DEFINE_float('lr', 0.001,
+tf.app.flags.DEFINE_float('lr', 0.0001,
                           """ learning rate """)
 TRAIN_DIR = './network'
 
 def make_flow_boundary(shape, compression_factor):
-  pos_x = np.random.randint(1, shape[0]/compression_factor - 1) * compression_factor
-  pos_y = np.random.randint(10, shape[0]/compression_factor - 1) * compression_factor
-  square_size = 2 * compression_factor
+  square_size = shape[0]/16
   boundary = np.zeros((1, shape[0], shape[1], 1), dtype=np.float32)
-  boundary[:, pos_x-square_size:pos_x+square_size, 
-              pos_y-square_size:pos_y+square_size, :] = 1.0
+  for i in xrange(1):
+    pos_x = np.random.randint(6*square_size/compression_factor, (shape[0] - 6*square_size)/compression_factor) * compression_factor
+    pos_y = np.random.randint(12*square_size/compression_factor, (shape[0] - 2*square_size)/compression_factor) * compression_factor
+    boundary[:, pos_x-square_size:pos_x+square_size, 
+                pos_y-square_size:pos_y+square_size, :] = 1.0
   boundary[:,0:compression_factor,:,:] = 1.0
   boundary[:,-compression_factor:,:,:] = 1.0
   return boundary
@@ -49,7 +54,7 @@ def filter_function(lattice, compression_factor, filter_type="ave_pool"):
                                  padding='SAME')
   return lattice
 
-def flow_init_step(domain, value=0.1, graph_unroll=False):
+def flow_init_step(domain, value=0.05, graph_unroll=False):
   shape = domain.F[0].get_shape()[0:3]
   shape = list(map(int, shape))
   u = np.zeros((shape[0],shape[1],shape[2],3))
@@ -79,7 +84,7 @@ def flow_init_step(domain, value=0.1, graph_unroll=False):
     initialize_step = tf.group(*[f_step, rho_step, vel_step])
     return initialize_step
 
-def flow_setup_step(domain, value=0.1, graph_unroll=False):
+def flow_setup_step(domain, value=0.05, graph_unroll=False):
   x_len = int(domain.F[0].get_shape()[1])
   u = np.zeros((1,x_len,1,1))
   l = x_len - 2
@@ -115,6 +120,30 @@ def flow_setup_step(domain, value=0.1, graph_unroll=False):
   vel_edge = vel_edge/rho_edge
   vel = tf.concat([vel_edge,vel_out],axis=2)
 
+  # remove vel on right side
+  f_out = f[:,:,:-1]
+  f_edge = tf.split(f[:,:,-1:], 9, axis=3)
+
+  # new out distrobution
+  vx = -1.0 + (f_edge[0] + f_edge[2] + f_edge[4] + 2.0*(f_edge[1] + f_edge[5] + f_edge[8]))
+  f_edge[3] = f_edge[1] - (2.0/3.0)*vx
+  f_edge[7] = f_edge[5] - (1.0/6.0)*vx + 0.5*(f_edge[2]-f_edge[4])
+  f_edge[6] = f_edge[8] - (1.0/6.0)*vx - 0.5*(f_edge[2]-f_edge[4])
+  f_edge = tf.stack(f_edge, axis=3)[:,:,:,:,0]
+  f = tf.concat([f_out,f_edge],axis=2)
+ 
+  # new Rho
+  rho_out = rho[:,:,:-1]
+  rho_edge = tf.expand_dims(tf.reduce_sum(f_edge, axis=3), axis=3)
+  rho = tf.concat([rho_out,rho_edge],axis=2)
+
+  # new vel
+  vel_out = vel[:,:,:-1]
+  vel_edge = simple_conv(f_edge, tf.reshape(domain.C, [1,1,domain.Nneigh, 3]))
+  vel_edge = vel_edge/rho_edge
+  vel = tf.concat([vel_out,vel_edge],axis=2)
+
+
   # make steps
   if graph_unroll:
     domain.F[0] = f
@@ -136,17 +165,48 @@ def flow_save(domain, sess):
   frame = frame - np.min(frame)
   frame = np.uint8(255 * frame/np.max(frame))
   frame = cv2.applyColorMap(frame, 2)
-  video.write(frame)
+  video_a.write(frame)
+
+def train_save(sess, domain, domain_les, lattice_in, boundary_in, train_lattices, train_boundaries, loss_lattice):
+  feed_dict={boundary_in: train_boundaries,
+             lattice_in: train_lattices}
+  vel_frame = sess.run(domain.Vel[0], feed_dict=feed_dict)
+  rho_frame = sess.run(domain.Rho[0], feed_dict=feed_dict)
+  vel_frame = np.sqrt(np.square(vel_frame[0,:,:,0]) + np.square(vel_frame[0,:,:,1]) + np.square(vel_frame[0,:,:,2]))
+  rho_frame = rho_frame[0,:,:,0] - 1.0
+  frame = np.concatenate([vel_frame, rho_frame], axis=0)
+  frame = frame - np.min(frame)
+  frame = np.uint8(255 * frame/np.max(frame))
+  frame = cv2.applyColorMap(frame, 2)
+  video_a.write(frame)
+
+  vel_frame = sess.run(domain_les.Vel[0], feed_dict=feed_dict)
+  rho_frame = sess.run(domain_les.Rho[0], feed_dict=feed_dict)
+  vel_frame = np.sqrt(np.square(vel_frame[0,:,:,0]) + np.square(vel_frame[0,:,:,1]) + np.square(vel_frame[0,:,:,2]))
+  rho_frame = rho_frame[0,:,:,0] - 1.0
+  frame = np.concatenate([vel_frame, rho_frame], axis=0)
+  frame = frame - np.min(frame)
+  frame = np.uint8(255 * frame/np.max(frame))
+  frame = cv2.applyColorMap(frame, 2)
+  video_b.write(frame)
+
+  loss_frame = sess.run(loss_lattice, feed_dict=feed_dict)
+  loss_frame = np.sum(loss_frame[0,:,:,], axis=-1)
+  frame = loss_frame
+  frame = frame - np.min(frame)
+  frame = np.uint8(255 * frame/np.max(frame))
+  frame = cv2.applyColorMap(frame, 2)
+  video_c.write(frame)
 
 def run():
   # simulation constants
-  input_vel = 0.05
+  input_vel = 0.04
   nu = 0.02
   Ndim = shape
 
   # les train details
   batch_size = 1
-  les_ratio = 1
+  les_ratio = 2
   compression_factor = pow(2, les_ratio)
   nu_les = nu/compression_factor
   Ndim_les = [x / compression_factor for x in shape]
@@ -175,10 +235,8 @@ def run():
    
       # loss
       lattice_true_out = filter_function(lattice_out, compression_factor)
-      lattice_true_out = lattice_true_out[:,1:-1,1:-1]
-      lattice_les_out = lattice_les_out[:,1:-1,1:-1]
-      loss_lattice = tf.abs((lattice_les_out - lattice_true_out) * (1.0 - domain_les.boundary[:,1:-1,1:-1]))
-      loss = tf.nn.l2_loss((lattice_les_out - lattice_true_out) * (1.0 - domain_les.boundary[:,1:-1,1:-1]))
+      loss_lattice = tf.abs((lattice_les_out - lattice_true_out) * (1.0 - domain_les.boundary))
+      loss = tf.nn.l2_loss((lattice_les_out - lattice_true_out) * (1.0 - domain_les.boundary))
       tf.summary.scalar('loss', loss)
    
       # train op
@@ -215,31 +273,18 @@ def run():
       train_boundaries = np.concatenate(train_boundaries, axis=0)
       train_lattices = sess.run(init_lattice_in, feed_dict={boundary_in: train_boundaries})
       print("making dataset")
-      for i in tqdm(xrange(300)): # run simulation a few steps to get rid of pressure waves at begining
+      for i in tqdm(xrange(10000)): # run simulation a few steps to get rid of pressure waves at begining
         train_lattices = sess.run(lattice_out, feed_dict={boundary_in: train_boundaries,
                                                           lattice_in: train_lattices})
 
-      for step in xrange(1000):
+      for step in tqdm(xrange(10000)):
         _ , loss_value, Sc = sess.run([train_op, loss, domain_les.Sc],feed_dict={boundary_in: train_boundaries,
                                                               lattice_in: train_lattices})
         train_lattices = sess.run(lattice_out, feed_dict={boundary_in: train_boundaries,
                                                           lattice_in: train_lattices})
 
         if step%20 == 0:
-          vel, vel_les, l_lat = sess.run([domain.Rho[0][0], domain_les.Rho[0][0], loss_lattice],feed_dict={boundary_in: train_boundaries,
-                                                                                      lattice_in: train_lattices})
-          #vel = np.sqrt(np.square(vel[:,:,0]) + np.square(vel[:,:,1]) + np.square(vel[:,:,2]))
-          #vel_les = np.sqrt(np.square(vel_les[:,:,0]) + np.square(vel_les[:,:,1]) + np.square(vel_les[:,:,2]))
-          """
-          vel = vel[:,:,0]
-          vel_les = vel_les[:,:,0]
-          plt.imshow(vel)
-          plt.show()
-          plt.imshow(vel_les)
-          plt.show()
-          plt.imshow(l_lat[0,:,:,0])
-          plt.show()
-          """
+          train_save(sess, domain, domain_les, lattice_in, boundary_in, train_lattices, train_boundaries, loss_lattice)
   
         assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
   
@@ -260,7 +305,7 @@ def run():
     boundary = make_flow_boundary(shape=Ndim, compression_factor=compression_factor)
 
     # make lattice state, boundary and input velocity
-    domain     = dom.Domain("D2Q9", nu, Ndim, boundary, les=True)
+    domain     = dom.Domain("D2Q9", nu, Ndim, boundary, les=False)
     initialize_step = flow_init_step(domain, value=input_vel)
     setup_step = flow_setup_step(domain, value=input_vel)
 
@@ -274,7 +319,7 @@ def run():
     sess.run(init)
 
     # run steps
-    domain.Solve(sess, 1000, initialize_step, setup_step, flow_save, 10)
+    domain.Solve(sess, 5000, initialize_step, setup_step, flow_save, 160)
 
 def main(argv=None):  # pylint: disable=unused-argument
   run()
