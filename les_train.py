@@ -20,16 +20,16 @@ video_b = cv2.VideoWriter()
 video_c = cv2.VideoWriter()
 
 # make video
-shape = [256, 1024]
+shape = [64 + 32, 256 + 128]
 success = video_a.open('les_a.mov', fourcc, 30, (shape[1], shape[0]*2), True)
 success = video_b.open('les_b.mov', fourcc, 30, (shape[1]/4, shape[0]*2/4), True)
-success = video_c.open('les_c.mov', fourcc, 30, ((shape[1]/4), (shape[0]/4)), True)
+success = video_c.open('les_c.mov', fourcc, 30, ((shape[1]/4)/2 - 10, (shape[0]/4)), True)
 
 FLAGS = tf.app.flags.FLAGS
 
 tf.app.flags.DEFINE_string('run_mode', 'eval',
                           """ run mode """)
-tf.app.flags.DEFINE_float('lr', 0.0001,
+tf.app.flags.DEFINE_float('lr', 0.001,
                           """ learning rate """)
 TRAIN_DIR = './network'
 
@@ -37,7 +37,7 @@ def make_flow_boundary(shape, compression_factor):
   square_size = shape[0]/16
   boundary = np.zeros((1, shape[0], shape[1], 1), dtype=np.float32)
   for i in xrange(1):
-    pos_x = np.random.randint(6*square_size/compression_factor, (shape[0] - 6*square_size)/compression_factor) * compression_factor
+    pos_x = np.random.randint(6*square_size/compression_factor, (shape[0] - 8*square_size)/compression_factor) * compression_factor
     pos_y = np.random.randint(12*square_size/compression_factor, (shape[0] - 2*square_size)/compression_factor) * compression_factor
     boundary[:, pos_x-square_size:pos_x+square_size, 
                 pos_y-square_size:pos_y+square_size, :] = 1.0
@@ -54,7 +54,7 @@ def filter_function(lattice, compression_factor, filter_type="ave_pool"):
                                  padding='SAME')
   return lattice
 
-def flow_init_step(domain, value=0.05, graph_unroll=False):
+def flow_init_step(domain, value=0.12, graph_unroll=False):
   shape = domain.F[0].get_shape()[0:3]
   shape = list(map(int, shape))
   u = np.zeros((shape[0],shape[1],shape[2],3))
@@ -84,7 +84,7 @@ def flow_init_step(domain, value=0.05, graph_unroll=False):
     initialize_step = tf.group(*[f_step, rho_step, vel_step])
     return initialize_step
 
-def flow_setup_step(domain, value=0.05, graph_unroll=False):
+def flow_setup_step(domain, value=0.12, graph_unroll=False):
   x_len = int(domain.F[0].get_shape()[1])
   u = np.zeros((1,x_len,1,1))
   l = x_len - 2
@@ -200,12 +200,12 @@ def train_save(sess, domain, domain_les, lattice_in, boundary_in, train_lattices
 
 def run():
   # simulation constants
-  input_vel = 0.04
+  input_vel = 0.12
   nu = 0.02
   Ndim = shape
 
   # les train details
-  batch_size = 1
+  batch_size = 8
   les_ratio = 2
   compression_factor = pow(2, les_ratio)
   nu_les = nu/compression_factor
@@ -230,13 +230,20 @@ def run():
       init_lattice_in = flow_init_step(domain, value=input_vel, graph_unroll=True)
     
       # unroll solvers
-      lattice_out     = domain.Unroll(    lattice_in,     compression_factor, flow_setup_step)
-      lattice_les_out = domain_les.Unroll(lattice_les_in, 1,                  flow_setup_step)
+      steps = 5
+      lattice_out     = domain.Unroll(    lattice_in,     steps*compression_factor, flow_setup_step)
+      lattice_les_out = domain_les.Unroll(lattice_les_in, steps,                  flow_setup_step)
    
       # loss
       lattice_true_out = filter_function(lattice_out, compression_factor)
-      loss_lattice = tf.abs((lattice_les_out - lattice_true_out) * (1.0 - domain_les.boundary))
-      loss = tf.nn.l2_loss((lattice_les_out - lattice_true_out) * (1.0 - domain_les.boundary))
+      lattice_true_out = tf.stop_gradient(lattice_true_out[:,:,Ndim_les[1]/2:-10])
+      lattice_les_out = lattice_les_out[:,:,Ndim_les[1]/2:-10]
+      #lattice_true_out = tf.stop_gradient(lattice_true_out)
+      #lattice_les_out = lattice_les_out
+      loss_lattice = tf.abs((lattice_les_out - lattice_true_out) * (1.0 - domain_les.boundary[:,:,Ndim_les[1]/2:-10]))
+      loss = tf.nn.l2_loss((lattice_les_out - lattice_true_out) * (1.0 - domain_les.boundary[:,:,Ndim_les[1]/2:-10]))
+      #loss_lattice = tf.abs((lattice_les_out - lattice_true_out) * (1.0 - domain_les.boundary))
+      #loss = tf.nn.l2_loss((lattice_les_out - lattice_true_out) * (1.0 - domain_les.boundary))
       tf.summary.scalar('loss', loss)
    
       # train op
@@ -273,22 +280,26 @@ def run():
       train_boundaries = np.concatenate(train_boundaries, axis=0)
       train_lattices = sess.run(init_lattice_in, feed_dict={boundary_in: train_boundaries})
       print("making dataset")
-      for i in tqdm(xrange(10000)): # run simulation a few steps to get rid of pressure waves at begining
+      for i in tqdm(xrange(2000/steps)): # run simulation a few steps to get rid of pressure waves at begining
         train_lattices = sess.run(lattice_out, feed_dict={boundary_in: train_boundaries,
                                                           lattice_in: train_lattices})
 
-      for step in tqdm(xrange(10000)):
+      les_error = []
+      sm_constant = []
+      for step in tqdm(xrange(1000)):
         _ , loss_value, Sc = sess.run([train_op, loss, domain_les.Sc],feed_dict={boundary_in: train_boundaries,
                                                               lattice_in: train_lattices})
+        les_error.append(loss_value)
+        sm_constant.append(Sc)
         train_lattices = sess.run(lattice_out, feed_dict={boundary_in: train_boundaries,
                                                           lattice_in: train_lattices})
 
-        if step%20 == 0:
+        if step%(50/steps) == 0:
           train_save(sess, domain, domain_les, lattice_in, boundary_in, train_lattices, train_boundaries, loss_lattice)
   
         assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
   
-        if step%10 == 0:
+        if step%(50/steps) == 0:
           summary_str = sess.run(summary_op, feed_dict={boundary_in: train_boundaries,
                                                         lattice_in: train_lattices})
           summary_writer.add_summary(summary_str, step) 
@@ -299,6 +310,21 @@ def run():
           checkpoint_path = os.path.join(TRAIN_DIR, 'model.ckpt')
           saver.save(sess, checkpoint_path, global_step=step)  
           print("saved to " + TRAIN_DIR)
+
+      les_error = np.array(les_error)
+      sm_constant = np.array(sm_constant)
+      plt.plot(les_error)
+      plt.title('Loss while training')
+      plt.ylabel('Mean Squared Error Loss')
+      plt.xlabel('Train Step')
+      plt.savefig('loss.pdf')
+      plt.show()
+      plt.plot(sm_constant)
+      plt.title('viscosity constant while training')
+      plt.ylabel('Sc')
+      plt.xlabel('Train Step')
+      plt.savefig('sc.pdf')
+      plt.show()
 
   elif FLAGS.run_mode == "eval":
   
@@ -319,7 +345,7 @@ def run():
     sess.run(init)
 
     # run steps
-    domain.Solve(sess, 5000, initialize_step, setup_step, flow_save, 160)
+    domain.Solve(sess, 20000, initialize_step, setup_step, flow_save, 60)
 
 def main(argv=None):  # pylint: disable=unused-argument
   run()

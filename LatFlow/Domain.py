@@ -5,6 +5,7 @@ import cv2
 from utils import *
 import time
 from tqdm import *
+from nn import *
 
 import D2Q9
 import D3Q15
@@ -49,6 +50,7 @@ class Domain():
       nu = [nu]
   
     self.les    = les 
+    self.train_les = train_les 
     self.time   = 0.0
     self.dt     = dt
     self.dx     = dx
@@ -125,9 +127,14 @@ class Domain():
     # collision calc
     NonEq = f - Feq
     if self.les:
-      Q = tf.expand_dims(tf.reduce_sum(NonEq*NonEq*self.EEk, axis=self.Dim+1), axis=self.Dim+1)
-      Q = tf.sqrt(1e-6 + 2.0*Q)
-      tau = 0.5*(self.tau[0]+tf.sqrt(self.tau[0]*self.tau[0] + 6.0*Q*self.Sc/rho))
+      if self.train_les:
+        Q = tf.expand_dims(tf.reduce_sum(NonEq*NonEq*self.EEk, axis=self.Dim+1), axis=self.Dim+1)
+        Q = tf.sqrt(1e-6 + 2.0*Q)
+        tau = 0.5*(self.tau[0]+tf.sqrt(self.tau[0]*self.tau[0] + 6.0*Q*self.Sc/rho))
+      else:
+        Q = tf.expand_dims(tf.reduce_sum(NonEq*NonEq*self.EEk, axis=self.Dim+1), axis=self.Dim+1)
+        Q = tf.sqrt(1e-6 + 2.0*Q)
+        tau = 0.5*(self.tau[0]+tf.sqrt(self.tau[0]*self.tau[0] + 6.0*Q*self.Sc/rho))
     else:
       tau = self.tau[0]
     f = f - NonEq/tau
