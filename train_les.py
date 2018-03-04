@@ -22,7 +22,7 @@ tf.app.flags.DEFINE_string('run_mode', 'train',
                           """ run mode """)
 tf.app.flags.DEFINE_string('data_dir', './data',
                           """ data dir """)
-tf.app.flags.DEFINE_integer('num_train_examples', 1500,
+tf.app.flags.DEFINE_integer('num_train_examples', 10000,
                           """ num_train examples to save """)
 tf.app.flags.DEFINE_string('train_dir', './network',
                           """ network dir """)
@@ -32,9 +32,11 @@ tf.app.flags.DEFINE_float('train_iters', 10000,
                           """ num_train_steps """)
 tf.app.flags.DEFINE_integer('nr_downsamples', 2,
                           """ downsamples """)
-tf.app.flags.DEFINE_float('visc', 0.02,
+tf.app.flags.DEFINE_integer('lattice_steps', 4,
+                          """ number of lattice steps """)
+tf.app.flags.DEFINE_float('visc', 0.005,
                           """ visc on DNS """)
-tf.app.flags.DEFINE_float('input_vel', 0.0025,
+tf.app.flags.DEFINE_float('input_vel', 0.0008,
                           """ input velocity on DNS """)
 tf.app.flags.DEFINE_integer('nx', 256,
                           """ lattice size nx """)
@@ -42,7 +44,7 @@ tf.app.flags.DEFINE_integer('ny', 256,
                           """ lattice size ny """)
 tf.app.flags.DEFINE_string('filter_type', "ave_pool",
                           """ what filter function to use """)
-tf.app.flags.DEFINE_integer('batch_size', 32,
+tf.app.flags.DEFINE_integer('batch_size', 128,
                           """ batch size to use """)
 TRAIN_DIR = './network'
 
@@ -91,15 +93,22 @@ def lid_init_step(domain, graph_unroll=False):
 def lid_setup_step(domain, simulation="DNS", graph_unroll=False):
   # inputing top velocity 
   if simulation == 'DNS':
-    #width = pow(2,FLAGS.nr_downsamples)
+    ratio = pow(2,FLAGS.nr_downsamples) + 2
     width = 1
   else:
+    ratio = 2
     width = 1
   vel = domain.Vel[0]
   vel_out  = vel[:,1:]
   vel_edge = vel[:,:1]
   vel_edge = tf.split(vel_edge, 3, axis=3)
-  vel_edge[0] = vel_edge[0]+FLAGS.input_vel
+  if simulation == 'DNS':
+    input_vel = np.zeros((1,1,FLAGS.ny,1))
+    input_vel[:,:,ratio:-ratio] = input_vel[:,:,ratio:-ratio] + FLAGS.input_vel
+  else:
+    input_vel = np.zeros((1,1,FLAGS.ny/pow(2,FLAGS.nr_downsamples),1))
+    input_vel[:,:,ratio:-ratio] = input_vel[:,:,ratio:-ratio] + FLAGS.input_vel/pow(2,FLAGS.nr_downsamples)
+  vel_edge[0] = vel_edge[0] + input_vel
   vel_edge = tf.concat(vel_edge, axis=3)
   vel = tf.concat([vel_edge,vel_out],axis=1)
 
@@ -119,6 +128,7 @@ def lid_save_video(domain, sess, video):
   frame_rho = sess.run(domain.Rho[0])[0,:,:,0]
   frame_vel = np.sqrt(np.square(frame_vel[0,:,:,0]) + np.square(frame_vel[0,:,:,1]) + np.square(frame_vel[0,:,:,2]))
   frame_rho = frame_rho - np.min(frame_rho)
+  #frame_rho = frame_rho * 0.0 
   frame = np.concatenate([frame_vel, frame_rho], axis=1)
   frame = np.uint8(255 * frame/np.max(frame))
   frame = cv2.applyColorMap(frame, 2)
@@ -167,7 +177,7 @@ def make_data():
   sess.run(init)
 
   # run steps
-  domain.Solve(sess, FLAGS.num_train_examples * ratio, initialize_step, setup_step, lid_save_data, ratio)
+  domain.Solve(sess, FLAGS.num_train_examples * ratio, initialize_step, setup_step, lid_save_data, ratio*FLAGS.lattice_steps)
 
 def test_dns():
 
@@ -238,8 +248,6 @@ def train():
   Ndim_DNS = [FLAGS.nx, FLAGS.ny]
   boundary = make_lid_boundary(FLAGS.nx, FLAGS.ny, simulation="LES") # TODO this should probably come from the dataset
 
-  # make dataset
-  dataset = DataSet()
 
   # start tf sesstion
   with tf.Session() as sess:
@@ -253,10 +261,11 @@ def train():
     domain = dom.Domain("D2Q9", FLAGS.visc/ratio, Ndim_LES, boundary, les=True, train_les=True)
 
     # unroll solver
-    lattice_les_out_g = domain.Unroll(lattice_les_in, 1, lid_setup_step)
+    lid_setup = lambda x, graph_unroll: lid_setup_step(x, simulation="LES", graph_unroll=graph_unroll)
+    lattice_les_out_g = domain.Unroll(lattice_les_in, FLAGS.lattice_steps, lid_setup)
 
     # loss
-    buffer_edges = 4
+    buffer_edges = 8
     lattice_les_out = lattice_les_out[:,buffer_edges:-buffer_edges,
                                         buffer_edges:-buffer_edges]
     lattice_les_out_g = lattice_les_out_g[:,buffer_edges:-buffer_edges,
@@ -296,9 +305,12 @@ def train():
     graph_def = sess.graph.as_graph_def(add_shapes=True)
     summary_writer = tf.summary.FileWriter(TRAIN_DIR, graph_def=graph_def)
            
+    # make dataset
+    dataset = DataSet()
+
     for step in tqdm(xrange(FLAGS.train_iters)):
       np_lattice_in, np_lattice_out = dataset.batch(FLAGS.batch_size)
-      _ , loss_value, Sc = sess.run([train_op, loss, domain.Sc],
+      _ , loss_value, Sc, tau = sess.run([train_op, loss, domain.Sc, domain.out_tau],
                                      feed_dict={lattice_in:  np_lattice_in,
                                                 lattice_out: np_lattice_out})
 
@@ -308,8 +320,9 @@ def train():
         summary_str = sess.run(summary_op, feed_dict={lattice_in:  np_lattice_in,
                                                       lattice_out: np_lattice_out})
         summary_writer.add_summary(summary_str, step) 
-        #print("loss value at " + str(loss_value))
-        #print("Sc constant at " + str(Sc))
+        print("loss value at " + str(loss_value))
+        print("Sc constant at " + str(Sc))
+        print("tau at " + str(tau[0,10,10]))
   
       if step%500 == 0:
         checkpoint_path = os.path.join(TRAIN_DIR, 'model.ckpt')
