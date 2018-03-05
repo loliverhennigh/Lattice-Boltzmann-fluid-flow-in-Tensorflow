@@ -20,7 +20,8 @@ class Domain():
                dx=1.0,
                dt=1.0,
                les=True,
-               train_les=False):
+               train_les=False,
+               Sc = None):
 
     if method == "D2Q9":
       self.Nneigh = 9
@@ -57,8 +58,7 @@ class Domain():
     self.Cs     = dx/dt
     self.Step   = 1
     if train_les:
-      self.Sc     = tf.get_variable("Sm_constant", 1, initializer=tf.constant_initializer(0.0))
-      #self.tau[0]     = tf.get_variable("Sm_constant", 1, initializer=tf.constant_initializer(self.tau))
+      self.Sc     = Sc 
     else:
       self.Sc     = 0.17
     self.Ndim   = Ndim
@@ -132,7 +132,6 @@ class Domain():
         #tau = self.tau[0] + self.Sc
         Q = tf.expand_dims(tf.reduce_sum(NonEq*NonEq*self.EEk, axis=self.Dim+1), axis=self.Dim+1)
         Q = tf.sqrt(1e-6 + 2.0*Q)
-        print(self.tau[0])
         tau = 0.5*(self.tau[0]+tf.sqrt(self.tau[0]*self.tau[0] + 6.0*Q*self.Sc/rho))
         self.out_tau = tau
       else:
