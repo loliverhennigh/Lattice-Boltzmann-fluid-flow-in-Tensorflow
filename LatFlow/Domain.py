@@ -58,7 +58,7 @@ class Domain():
     self.Cs     = dx/dt
     self.Step   = 1
     if train_les:
-      self.Sc     = Sc 
+      self.Sc     = tf.abs(Sc)
     else:
       self.Sc     = 0.17
     self.Ndim   = Ndim

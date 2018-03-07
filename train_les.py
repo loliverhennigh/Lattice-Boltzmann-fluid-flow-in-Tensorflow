@@ -3,17 +3,20 @@ import time
 import glob
 import os
 
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
 import numpy as np
 import tensorflow as tf
 import math 
 import cv2
+import skfmm
 
 import LatFlow.Domain as dom
 from   LatFlow.utils  import *
 from   LatFlow.nn import *
 from tqdm import *
-
-import matplotlib.pyplot as plt
 
 # video init
 fourcc = cv2.cv.CV_FOURCC('m', 'p', '4', 'v') 
@@ -25,15 +28,15 @@ tf.app.flags.DEFINE_string('run_mode', 'train',
                           """ run mode """)
 tf.app.flags.DEFINE_string('data_dir', './data',
                           """ data dir """)
-tf.app.flags.DEFINE_integer('num_train_examples', 1000,
+tf.app.flags.DEFINE_integer('num_train_examples', 30000,
                           """ num_train examples to save """)
 tf.app.flags.DEFINE_string('train_dir', './network',
                           """ network dir """)
 tf.app.flags.DEFINE_float('lr', 0.001,
                           """ learning rate """)
-tf.app.flags.DEFINE_float('train_iters', 10,
+tf.app.flags.DEFINE_integer('train_iters', 1000,
                           """ num_train_steps """)
-tf.app.flags.DEFINE_integer('nr_downsamples', 2,
+tf.app.flags.DEFINE_integer('nr_downsamples', 1,
                           """ downsamples """)
 tf.app.flags.DEFINE_integer('lattice_steps', 2,
                           """ number of lattice steps """)
@@ -49,7 +52,7 @@ tf.app.flags.DEFINE_string('filter_type', "ave_pool",
                           """ what filter function to use """)
 tf.app.flags.DEFINE_integer('batch_size', 128,
                           """ batch size to use """)
-tf.app.flags.DEFINE_string('train_type', 'boundary',
+tf.app.flags.DEFINE_string('train_type', 'constant',
                           """ how to train the Sc constant """)
 TRAIN_DIR = './network'
 
@@ -146,16 +149,16 @@ class DataSet():
     data_files.sort()
     self.data = []
     print("reading in data")
-    for i in tqdm(xrange(len(data_files))):
-      self.data.append(np.load(data_files[i]))
+    for i in tqdm(xrange(len(data_files)/step_size)):
+      self.data.append(np.load(data_files[i*step_size]))
 
   def batch(self, batch_size):
     batch_in  = []
     batch_out = []
     for i in xrange(batch_size): 
-      index = np.random.randint(0, len(self.data)-self.step_size)
+      index = np.random.randint(0, len(self.data)-1)
       batch_in.append(self.data[index])
-      batch_out.append(self.data[index+self.step_size])
+      batch_out.append(self.data[index+1])
     batch_in  = np.concatenate(batch_in,  axis=0)
     batch_out = np.concatenate(batch_out, axis=0)
     return batch_in, batch_out
@@ -183,7 +186,7 @@ def make_data():
   sess.run(init)
 
   # run steps
-  domain.Solve(sess, FLAGS.num_train_examples * ratio, initialize_step, setup_step, lid_save_data, 1)
+  domain.Solve(sess, FLAGS.num_train_examples, initialize_step, setup_step, lid_save_data, 1)
 
 def test_dns():
 
@@ -214,7 +217,7 @@ def test_dns():
 
   # run steps
   lid_save = lambda x, y: lid_save_video(x, y, video=video)
-  domain.Solve(sess, FLAGS.num_train_examples * ratio, initialize_step, setup_step, lid_save, ratio)
+  domain.Solve(sess, FLAGS.num_train_examples, initialize_step, setup_step, lid_save, ratio)
 
 def test_les():
 
@@ -253,6 +256,8 @@ def train():
   Ndim_LES = [FLAGS.nx/ratio, FLAGS.ny/ratio]
   Ndim_DNS = [FLAGS.nx, FLAGS.ny]
   boundary = make_lid_boundary(FLAGS.nx, FLAGS.ny, simulation="LES") # TODO this should probably come from the dataset
+  sdf_boundary = skfmm.distance((-2.0*boundary) + 1.0) # TODO this should probably come from the dataset
+  sdf_boundary = sdf_boundary/np.max(sdf_boundary) # TODO this should probably come from the dataset
 
 
   # start tf sesstion
@@ -261,14 +266,15 @@ def train():
     lattice_in =  tf.placeholder(tf.float32, [FLAGS.batch_size] + Ndim_DNS + [9], name="lattice_in")
     lattice_out = tf.placeholder(tf.float32, [FLAGS.batch_size] + Ndim_DNS + [9], name="lattice_out")
     boundary_in = tf.placeholder(tf.float32, [FLAGS.batch_size] + Ndim_LES + [1], name="boundary_in")
+    sdf_boundary_in = tf.placeholder(tf.float32, [FLAGS.batch_size] + Ndim_LES + [1], name="sdf_boundary_in")
     lattice_les_in  = filter_function(lattice_in)
     lattice_les_out = filter_function(lattice_out)
    
     # make Sc constant
     if FLAGS.train_type == "constant":
-      Sc = tf.get_variable('Sc', [1], initializer=tf.constant_initializer(0.17))
+      Sc = tf.get_variable('Sc', [1], initializer=tf.constant_initializer(0.0))
     elif FLAGS.train_type == "boundary":
-      x = res_block(boundary_in, filter_size=16, name="first_res", begin_nonlinearity=False)
+      x = res_block(sdf_boundary_in, filter_size=16, name="first_res", begin_nonlinearity=False)
       for i in xrange(2):
         x = res_block(x, filter_size=16, name="res_" + str(i))
       Sc = conv_layer(x, 3, 1, 1, idx="final_conv")
@@ -331,14 +337,16 @@ def train():
       _ , loss_value, Sc, tau = sess.run([train_op, loss, Sc_average, domain.out_tau],
                                      feed_dict={lattice_in:  np_lattice_in,
                                                 lattice_out: np_lattice_out,
-                                                boundary_in: np.concatenate(FLAGS.batch_size * [boundary], axis=0)})
+                                                boundary_in: np.concatenate(FLAGS.batch_size * [boundary], axis=0),
+                                                sdf_boundary_in: np.concatenate(FLAGS.batch_size * [sdf_boundary], axis=0)})
 
       assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
   
       if step%10 == 0:
         summary_str = sess.run(summary_op, feed_dict={lattice_in:  np_lattice_in,
                                                       lattice_out: np_lattice_out,
-                                                      boundary_in: np.concatenate(FLAGS.batch_size * [boundary], axis=0)})
+                                                      boundary_in: np.concatenate(FLAGS.batch_size * [boundary], axis=0),
+                                                      sdf_boundary_in: np.concatenate(FLAGS.batch_size * [sdf_boundary], axis=0)})
         summary_writer.add_summary(summary_str, step) 
         print("loss value at " + str(loss_value))
         print("Sc constant at " + str(Sc))
@@ -350,9 +358,15 @@ def train():
         print("saved to " + TRAIN_DIR)
 
     if FLAGS.train_type == "boundary":
-      plt.imshow(sess.run(domain.Sc[0], feed_dict={boundary_in: np.concatenate(FLAGS.batch_size * [boundary], axis=0)})[:,:,0])
+      boundary_sc = sess.run(domain.Sc, feed_dict={sdf_boundary_in: np.concatenate(FLAGS.batch_size * [sdf_boundary], axis=0)})
+      buffer_edges = FLAGS.lattice_steps + 2
+      boundary_sc = boundary_sc[0,buffer_edges:-buffer_edges,
+                                  buffer_edges:-buffer_edges,0]
+      plt.imshow(boundary_sc)
+      #plt.imshow(sdf_boundary[0,:,:,0])
       plt.title("visc constant")
-      plt.show()
+      plt.colorbar()
+      plt.savefig("visc_constant.pdf")
 
 def main(argv=None):  # pylint: disable=unused-argument
   if FLAGS.run_mode == "train":
